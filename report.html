@@ -6,6 +6,8 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
+<meta name="author" content="Rong Xu">
+<meta name="author" content="Rachael E Quill (Mentor)">
 
 <title>Modeling Weather-Dependent Electricity Demand in Victoria Using Generalized Additive Mixed Models (GAMMs)</title>
 <style>
@@ -101,8 +103,11 @@ ul.task-list li input[type="checkbox"] {
   </ul></li>
   <li><a href="#sec-conclusion" id="toc-sec-conclusion" class="nav-link" data-scroll-target="#sec-conclusion"><span class="header-section-number">8</span> Conclusion</a></li>
   <li><a href="#references-apa-7th" id="toc-references-apa-7th" class="nav-link" data-scroll-target="#references-apa-7th"><span class="header-section-number">9</span> References (APA 7th)</a></li>
-  <li><a href="#appendix-a-full-gamm-term-extraction" id="toc-appendix-a-full-gamm-term-extraction" class="nav-link" data-scroll-target="#appendix-a-full-gamm-term-extraction"><span class="header-section-number">10</span> Appendix A — Full GAMM Term Extraction</a></li>
-  <li><a href="#appendix-b-full-gamm-smooth-plots" id="toc-appendix-b-full-gamm-smooth-plots" class="nav-link" data-scroll-target="#appendix-b-full-gamm-smooth-plots"><span class="header-section-number">11</span> Appendix B — Full GAMM Smooth Plots</a></li>
+  <li><a href="#appendix-appendices" id="toc-appendix-appendices" class="nav-link" data-scroll-target="#appendix-appendices">(APPENDIX) Appendices</a>
+  <ul class="collapse">
+  <li><a href="#app-gamm-terms" id="toc-app-gamm-terms" class="nav-link" data-scroll-target="#app-gamm-terms"><span class="header-section-number">9.1</span> (APPENDIX A) Full GAMM Term Extraction</a></li>
+  <li><a href="#app-gamm-smooths" id="toc-app-gamm-smooths" class="nav-link" data-scroll-target="#app-gamm-smooths"><span class="header-section-number">9.2</span> (APPENDIX B) Full GAMM Smooth Plots</a></li>
+  </ul></li>
   </ul>
 <div class="quarto-alternate-formats"><h2>Other Formats</h2><ul><li><a href="report.pdf"><i class="bi bi-file-pdf"></i>PDF</a></li></ul></div></nav>
 </div>
@@ -114,10 +119,31 @@ ul.task-list li input[type="checkbox"] {
 </div>
 
 
+<div class="quarto-title-meta-author">
+  <div class="quarto-title-meta-heading">Authors</div>
+  <div class="quarto-title-meta-heading">Affiliations</div>
+  
+    <div class="quarto-title-meta-contents">
+    <p class="author">Rong Xu </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            Monash University
+          </p>
+      </div>
+    <div class="quarto-title-meta-contents">
+    <p class="author">Rachael E Quill (Mentor) </p>
+  </div>
+  <div class="quarto-title-meta-contents">
+        <p class="affiliation">
+            State Electricity Commission Victoria
+          </p>
+      </div>
+  </div>
 
 <div class="quarto-title-meta">
 
-    
+      
   
     
   </div>
@@ -173,7 +199,7 @@ ul.task-list li input[type="checkbox"] {
 <section id="significance" class="level2" data-number="2.5">
 <h2 data-number="2.5" class="anchored" data-anchor-id="significance"><span class="header-section-number">2.5</span> Significance:</h2>
 <p>Improving load forecast accuracy has tangible benefits for the State Electricity Commission (SEC) Victoria. Even small reductions in forecasting error can translate into substantial cost savings and operational efficiencies. The enhanced accuracy achieved by our weather-informed GAMM framework—yielding daily errors of only around 3–4% (R² ≈ 0.94)—is therefore of significant practical value. Beyond accuracy, the model provides interpretability by quantifying how temperature, solar exposure, and local seasonal regimes influence electricity demand. These insights help policy-makers understand the impact of climate variability and rooftop PV adoption on energy consumption. This project was undertaken as part of a university capstone in collaboration with a government energy agency, highlighting its applied and policy-relevant significance.</p>
-<p>The remainder of this report is structured as follows: The remainder of this report is organized as follows.@sec-data describes the data sources and preprocessing procedures used to construct the integrated demand–weather dataset.@sec-EDA presents the exploratory data analysis (EDA), highlighting key patterns and relationships that justify the adoption of local-season clustering and guide the feature engineering process that motivates the modelling approach. <a href="#sec-Methodology" class="quarto-xref">Section&nbsp;5</a> outlines the modelling framework and overall workflow of the Generalized Additive Mixed Model (GAMM), covering the processes of model fitting, evaluation, residual diagnostic checking, and forecasting. <a href="#sec-results" class="quarto-xref">Section&nbsp;6</a> summarizes the overall model fitting outcomes from sec-Methodology and interprets the model components. Finally, <a href="#sec-discussion" class="quarto-xref">Section&nbsp;7</a> and <a href="#sec-conclusion" class="quarto-xref">Section&nbsp;8</a> present the principal findings, discuss implications for system planning, and identify limitations and directions for future improvement.</p>
+<p>The remainder of this report is structured as follows: The remainder of this report is organized as follows. <a href="#sec-data" class="quarto-xref">Section&nbsp;3</a> describes the data sources and preprocessing procedures used to construct the integrated demand–weather dataset. <a href="#sec-EDA" class="quarto-xref">Section&nbsp;4</a> presents the exploratory data analysis (EDA), highlighting key patterns and relationships that justify the adoption of local-season clustering and guide the feature engineering process that motivates the modelling approach. <a href="#sec-Methodology" class="quarto-xref">Section&nbsp;5</a> outlines the modelling framework and overall workflow of the Generalized Additive Mixed Model (GAMM), covering the processes of model fitting, evaluation, residual diagnostic checking, and forecasting. <a href="#sec-results" class="quarto-xref">Section&nbsp;6</a> summarizes the overall model fitting outcomes from sec-Methodology and interprets the model components. Finally, <a href="#sec-discussion" class="quarto-xref">Section&nbsp;7</a> and <a href="#sec-conclusion" class="quarto-xref">Section&nbsp;8</a> present the principal findings, discuss implications for system planning, and identify limitations and directions for future improvement.</p>
 </section>
 </section>
 <section id="sec-data" class="level1" data-number="3">
@@ -2921,7 +2947,7 @@ Figure&nbsp;14: GAMM diagnostic plots generated via <code>gratia::appraise()</co
 <h2 data-number="6.2" class="anchored" data-anchor-id="sec-Interpretation-of-Model-Components"><span class="header-section-number">6.2</span> Interpretation of Model Components</h2>
 <p>Overall, the fitted GAMM effectively decomposes Victoria’s electricity demand into interpretable components that align with real-world energy behavior. Temperature remains the dominant driver, showing strong asymmetry between heating- and cooling-driven regimes. Solar exposure exerts a consistently negative effect, reflecting the growing impact of rooftop PV on reducing grid demand during daylight hours. The diurnal temperature range and solar–temperature interactions reveal that clear-sky conditions significantly moderate load, while the cyclic calendar term captures the expected winter and summer peaks. Together, these components highlight how meteorological and seasonal factors jointly shape demand, demonstrating the model’s capacity to separate and quantify the nonlinear effects of heating, cooling, and solar generation in a physically meaningful way.</p>
 <p>Incorporating a heteroskedastic variance structure stabilises residuals across seasons, with variance highest in Cold &amp; Clear and lowest in Mild &amp; Moderate regimes (see <a href="#tbl-variance" class="quarto-xref">Table&nbsp;10</a>). This structure improves model fit and ensures more reliable uncertainty estimation, particularly under extreme weather conditions.</p>
-<p>A concise summary of significant model components and their implications is provided in Table <a href="#tbl-gamm-grouped-interpretation" class="quarto-xref">Table&nbsp;11</a>, while the full list of model terms and significance results is included for reference in Appendix A (<a href="#tbl-gamm-terms" class="quarto-xref">Table&nbsp;12</a>). Collectively, these findings demonstrate that the GAMM captures realistic, weather-dependent, and behavioural load dynamics with strong alignment to domain knowledge. For completeness, all smooth components of the fitted GAMM are shown in Appendix B (<strong>?@fig-gamm-all</strong>).</p>
+<p>A concise summary of significant model components and their implications is provided in Table <a href="#tbl-gamm-grouped-interpretation" class="quarto-xref">Table&nbsp;11</a>, while the full list of model terms and significance results is included for reference in Appendix A ( <a href="#tbl-gamm-terms" class="quarto-xref">Table&nbsp;12</a>). Collectively, these findings demonstrate that the GAMM captures realistic, weather-dependent, and behavioural load dynamics with strong alignment to domain knowledge. For completeness, all smooth components of the fitted GAMM are shown in Appendix B ( <strong>?@fig-gamm-all</strong>).</p>
 <div class="cell">
 <div id="tbl-variance" class="cell quarto-float anchored">
 <figure class="quarto-float quarto-float-tbl figure">
@@ -3618,8 +3644,10 @@ Table&nbsp;11: Grouped Interpretation of GAMM Smooth Terms
 <p>Wood, S. N. (2017). Generalized additive models: An introduction with R (2nd ed.). Chapman and Hall/CRC.</p>
 <p>Wood, S. N. (2019). Generalized additive models: An introduction with R (2nd ed.). CRC Press.</p>
 </section>
-<section id="appendix-a-full-gamm-term-extraction" class="level1" data-number="10">
-<h1 data-number="10"><span class="header-section-number">10</span> Appendix A — Full GAMM Term Extraction</h1>
+<section id="appendix-appendices" class="level1 unnumbered">
+<h1 class="unnumbered">(APPENDIX) Appendices</h1>
+<section id="app-gamm-terms" class="level2" data-number="9.1">
+<h2 data-number="9.1" class="anchored" data-anchor-id="app-gamm-terms"><span class="header-section-number">9.1</span> (APPENDIX A) Full GAMM Term Extraction</h2>
 <p>This appendix provides the full table of smooth, tensor, and parametric terms from the fitted GAMM, including significance levels and interpretation categories.<br>
 For clarity, only summarized interpretations are discussed in Section <a href="#sec-Interpretation-of-Model-Components" class="quarto-xref">Section&nbsp;6.2</a>, while the detailed term listing is shown below.</p>
 <div class="cell">
@@ -3936,8 +3964,8 @@ Table&nbsp;12: All model terms and interpretations in GAMM (Tmean_pca / Trange_p
 </div>
 </div>
 </section>
-<section id="appendix-b-full-gamm-smooth-plots" class="level1" data-number="11">
-<h1 data-number="11"><span class="header-section-number">11</span> Appendix B — Full GAMM Smooth Plots</h1>
+<section id="app-gamm-smooths" class="level2" data-number="9.2">
+<h2 data-number="9.2" class="anchored" data-anchor-id="app-gamm-smooths"><span class="header-section-number">9.2</span> (APPENDIX B) Full GAMM Smooth Plots</h2>
 <div class="cell" data-layout-align="center">
 <div class="cell-output-display">
 <div id="fig-gamm-all-1" class="quarto-figure quarto-figure-center quarto-float anchored" data-fig-align="center">
@@ -3989,6 +4017,7 @@ Figure&nbsp;18: All smooth terms of the fitted GAMM
 </div>
 </div>
 <p>These figures display all smooth terms from the fitted GAMM, including temperature-, solar-, and range-related effects by local season, interaction tensors, and cyclic seasonal components. They are included here for completeness; main findings are discussed in Section <a href="#sec-Interpretation-of-Model-Components" class="quarto-xref">Section&nbsp;6.2</a>.</p>
+</section>
 </section>
 
 </main>

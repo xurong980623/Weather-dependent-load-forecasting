@@ -1,6 +1,12 @@
 ---
 title: "Modeling Weather-Dependent Electricity Demand in Victoria Using Generalized Additive Mixed Models (GAMMs)"
+author:
+  - name: "Rong Xu"
+    affiliation: "Monash University"
+  - name: "Rachael E Quill (Mentor)"
+    affiliation: "State Electricity Commission Victoria"
 
+repo-url: "https://github.com/xurong980623/Weather-dependent-load-forecasting"
 format:
   html:
     toc: true
@@ -106,6 +112,7 @@ In contemporary power systems, the increasing penetration of renewable and distr
 To address these challenges, This report explores an advanced approach that integrates time-series structure with nonlinear weather effects, aiming to enhance both forecast accuracy and interpretability for daily electricity demand in Victoria, Australia, focusing on Melbourne and surrounding regions. 
 
 ## Background: 
+
 Victoria’s Energy Transition Victoria’s electricity system is undergoing a structural transformation driven by decarbonisation policy, renewable investment, and rapid household PV adoption. The State Electricity Commission (SEC) of Victoria, re-established in 2023, plays a central role in this transition as a government-owned energy company focused on accelerating renewable investment, supporting household electrification, and building Victoria’s renewable energy workforce. Since the launch of the Solar Homes Program in 2018, rooftop PV installations across Victoria have expanded rapidly, contributing to increasingly irregular grid-level demand patterns. This trend reflects a structural shift in how economic activity translates into electricity demand, with the relationship becoming more weather- and behaviour-sensitive due to widespread rooftop PV adoption and ongoing electrification. Weather conditions—particularly temperature and solar exposure—now play a dominant role in shaping daily consumption. The growth of distributed energy resources, including rooftop PV and emerging battery systems, has made load profiles more responsive to climatic and behavioural factors than ever before.
 
 ## Literature Context:
@@ -143,7 +150,7 @@ Together, these objectives aim to deliver a transparent and adaptive forecasting
 
 Improving load forecast accuracy has tangible benefits for the State Electricity Commission (SEC) Victoria. Even small reductions in forecasting error can translate into substantial cost savings and operational efficiencies. The enhanced accuracy achieved by our weather-informed GAMM framework—yielding daily errors of only around 3–4% (R² ≈ 0.94)—is therefore of significant practical value. Beyond accuracy, the model provides interpretability by quantifying how temperature, solar exposure, and local seasonal regimes influence electricity demand. These insights help policy-makers understand the impact of climate variability and rooftop PV adoption on energy consumption. This project was undertaken as part of a university capstone in collaboration with a government energy agency, highlighting its applied and policy-relevant significance.
 
-The remainder of this report is structured as follows: The remainder of this report is organized as follows.@sec-data describes the data sources and preprocessing procedures used to construct the integrated demand–weather dataset.@sec-EDA presents the exploratory data analysis (EDA), highlighting key patterns and relationships that justify the adoption of local-season clustering and guide the feature engineering process that motivates the modelling approach. @sec-Methodology outlines the modelling framework and overall workflow of the Generalized Additive Mixed Model (GAMM), covering the processes of model fitting, evaluation, residual diagnostic checking, and forecasting. @sec-results summarizes the overall model fitting outcomes from sec-Methodology and interprets the model components. Finally, @sec-discussion and @sec-conclusion present the principal findings, discuss implications for system planning, and identify limitations and directions for future improvement.
+The remainder of this report is structured as follows: The remainder of this report is organized as follows. @sec-data describes the data sources and preprocessing procedures used to construct the integrated demand–weather dataset. @sec-EDA presents the exploratory data analysis (EDA), highlighting key patterns and relationships that justify the adoption of local-season clustering and guide the feature engineering process that motivates the modelling approach. @sec-Methodology outlines the modelling framework and overall workflow of the Generalized Additive Mixed Model (GAMM), covering the processes of model fitting, evaluation, residual diagnostic checking, and forecasting. @sec-results summarizes the overall model fitting outcomes from sec-Methodology and interprets the model components. Finally, @sec-discussion and @sec-conclusion present the principal findings, discuss implications for system planning, and identify limitations and directions for future improvement.
 
 # Data and Pre-processing {#sec-data}
 
@@ -2638,7 +2645,7 @@ Overall, the fitted GAMM effectively decomposes Victoria’s electricity demand 
 
 Incorporating a heteroskedastic variance structure stabilises residuals across seasons, with variance highest in Cold & Clear and lowest in Mild & Moderate regimes (see @tbl-variance). This structure improves model fit and ensures more reliable uncertainty estimation, particularly under extreme weather conditions.
 
-A concise summary of significant model components and their implications is provided in Table @tbl-gamm-grouped-interpretation, while the full list of model terms and significance results is included for reference in Appendix A (@tbl-gamm-terms). Collectively, these findings demonstrate that the GAMM captures realistic, weather-dependent, and behavioural load dynamics with strong alignment to domain knowledge. For completeness, all smooth components of the fitted GAMM are shown in Appendix B (@fig-gamm-all).
+A concise summary of significant model components and their implications is provided in Table @tbl-gamm-grouped-interpretation, while the full list of model terms and significance results is included for reference in Appendix A ( @tbl-gamm-terms). Collectively, these findings demonstrate that the GAMM captures realistic, weather-dependent, and behavioural load dynamics with strong alignment to domain knowledge. For completeness, all smooth components of the fitted GAMM are shown in Appendix B ( @fig-gamm-all).
 
 ```{r tbl-variance}
 #| label: tbl-variance
@@ -2850,10 +2857,13 @@ Wood, S. N. (2017). Generalized additive models: An introduction with R (2nd ed.
 
 Wood, S. N. (2019). Generalized additive models: An introduction with R (2nd ed.). CRC Press.
 
-# Appendix A — Full GAMM Term Extraction
+# (APPENDIX) Appendices {-}
 
-This appendix provides the full table of smooth, tensor, and parametric terms from the fitted GAMM, including significance levels and interpretation categories.\
+## (APPENDIX A) Full GAMM Term Extraction {#app-gamm-terms}
+
+This appendix provides the full table of smooth, tensor, and parametric terms from the fitted GAMM, including significance levels and interpretation categories.  
 For clarity, only summarized interpretations are discussed in Section @sec-Interpretation-of-Model-Components, while the detailed term listing is shown below.
+
 
 ```{r tbl-gamm-terms}
 #| label: tbl-gamm-terms
@@ -2932,11 +2942,10 @@ knitr::kable(
 
 ```
 
-# Appendix B — Full GAMM Smooth Plots
-
+## (APPENDIX B) Full GAMM Smooth Plots {#app-gamm-smooths}
 ```{r fig-gamm-all}
 #| label: fig-gamm-all
-#| fig-cap: "All smooth terms of the fitted GAMM "
+#| fig-cap: "All smooth terms of the fitted GAMM"
 #| warning: false
 #| message: false
 #| cache: true
@@ -2945,9 +2954,14 @@ knitr::kable(
 #| out-width: 100%
 #| fig-align: center
 
+# mgcv::plot will paginate if pages > 1; you can adjust for PDF vs HTML as needed
+
+op <- par(no.readonly = TRUE)
+on.exit(par(op), add = TRUE)
+
 par(mfrow = c(1, 1), mar = c(3, 3, 2, 1))
 plot(m_gamm$gam, pages = 4, residuals = TRUE, shade = TRUE, scale = 0)
-par(mfrow = c(1, 1))
+
 ```
 
 These figures display all smooth terms from the fitted GAMM, including temperature-, solar-, and range-related effects by local season, interaction tensors, and cyclic seasonal components.
