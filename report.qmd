@@ -2821,36 +2821,6 @@ The model achieved strong predictive performance — with MAPE ≈ 3.28% and R²
 
 In summary, this study demonstrates a successful synthesis of data-driven modelling and domain knowledge in short-term load forecasting. By unifying regional weather data, objectively defining local-season clusters, and employing a flexible nonlinear model structure, we achieved both high accuracy and interpretability. These attributes make the approach practical and trustworthy for planners and policymakers who require not only reliable forecasts but also a clear understanding of demand drivers. Moving forward, adopting such methodologies can enhance grid resilience, support renewable integration, and ensure reliable power supply amid increasing weather variability and evolving consumption patterns.
 
-# References (APA 7th)
-
-AEMO. (2024, August). Electricity demand forecasting methodology. Australian Energy Market Operator. https://www.aer.gov.au
-
-Aquila, G., de Queiroz, A. R., Pamplona, E. de O., & Junior, P. R. M. (2023). Short-term load forecasting for operational planning: Overview. Energies, 16(21), Article 21. https://scholars.duke.edu
-
-Australian Energy Council. (2019, June). Solar report – June 2019. https://www.energycouncil.com.au
-
-Bureau of Meteorology (BoM). (2024). Climate data online — Daily temperature and solar exposure. Australian Government. https://www.bom.gov.au/climate/data/
-
-Clean Energy Regulator (CER). (2024). Small-scale renewable energy scheme data — Postcode installations. https://cer.gov.au/markets/reports-and-data/small-scale-installation-postcode-data
-
-Essential Services Commission. (2025, February). Draft decision on solar feed-in tariffs [Press release]. https://www.pv-magazine-australia.com
-
-Fan, J., Zhang, C., & Wang, Y. (2022). Nonlinear models for short-term electricity demand forecasting under climate variability. Energy Economics, 108, 105872. https://doi.org/10.1016/j.eneco.2022.105872
-
-Hastie, T., & Tibshirani, R. (2017). Generalized additive models. Chapman and Hall/CRC. https://www.taylorfrancis.com/books/mono/10.1201/9780203753781/generalized-additive-models-hastie
-
-Hong, T., & Fan, S. (2016). Probabilistic electric load forecasting: A tutorial review. International Journal of Forecasting, 32(3), 914–938. https://doi.org/10.1016/j.ijforecast.2015.11.011
-
-Neumann, O., Heine, C., & Fichtner, W. (2023). Using weather data in energy time series forecasting: The benefit of input data transformations. Energy Informatics, 6(44). https://energyinformatics.springeropen.com
-
-SAS Institute. (2022, July 18). Accuracy versus interpretability? With GAMs, you can have both. SAS Data Science Blog. https://blogs.sas.com
-
-Wood, S. N. (2017). Generalized additive models: An introduction with R (2nd ed.). Chapman and Hall/CRC. https://www.taylorfrancis.com/books/mono/10.1201/9781315370279/generalized-additive-models-simon-wood
-
-Baur, L., Ditschuneit, K., Schambach, M., Kaymakci, C., Wollmann, T., & Sauer, A. (2024). Explainability and interpretability in electric load forecasting using machine learning techniques: A review. Energy and AI, 16, 100358. https://doi.org/10.1016/j.egyai.2024.100358
-
-Misiurek, K., Olkuski, T., & Zyśk, J. (2025). Review of methods and models for forecasting electricity consumption. Energies, 18(15), 4032. https://doi.org/10.3390/en18154032
-
 # (APPENDIX) Appendices {.unnumbered}
 
 ## (APPENDIX A) Full GAMM Term Extraction {#app-gamm-terms}
