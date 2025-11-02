@@ -117,13 +117,13 @@ The key research question guiding this study is: How can daily electricity deman
 
 To address this, the project pursues four connected objectives:
 
--   Develop a unified weather signal by applying Principal Component Analysis (PCA) to combine temperature and solar exposure data from multiple meteorological stations, reducing spatial redundancy and extracting dominant regional weather patterns.
+- Develop a unified weather signal by applying Principal Component Analysis (PCA) to combine temperature and solar exposure data from multiple meteorological stations, reducing spatial redundancy and extracting dominant regional weather patterns.
 
--   Construct temperature-based features — using the PCA-derived temperature component, compute daily mean temperature (Tmean), temperature range (Trange), and heating and cooling degree days (HDD and CDD) to capture nonlinear and asymmetric thermal effects on electricity demand, where HDD and CDD measure deviations from a comfort threshold that drive heating and cooling behaviour.
+- Construct temperature-based features — using the PCA-derived temperature component, compute daily mean temperature (Tmean), temperature range (Trange), and heating and cooling degree days (HDD and CDD) to capture nonlinear and asymmetric thermal effects on electricity demand, where HDD and CDD measure deviations from a comfort threshold that drive heating and cooling behaviour.
 
--   Identify data-driven weather regimes (“local seasons”) using Gaussian Mixture Model (GMM) clustering, providing flexible seasonal segmentation that better aligns with real-world weather transitions than fixed calendar seasons.
+- Identify data-driven weather regimes (“local seasons”) using Gaussian Mixture Model (GMM) clustering, providing flexible seasonal segmentation that better aligns with real-world weather transitions than fixed calendar seasons.
 
--   Develop, compare, and interpret a Generalized Additive Mixed Model (GAMM) that integrates these weather features and seasonal clusters, evaluates alternative temperature representations (raw temperature, PCA-based temperature, and HDD/CDD formulations), incorporates calendar and lag effects, and assesses performance and robustness over an extended hold-out period (2024–2025) through diagnostic checks.
+- Develop, compare, and interpret a Generalized Additive Mixed Model (GAMM) that integrates these weather features and seasonal clusters, evaluates alternative temperature representations (raw temperature, PCA-based temperature, and HDD/CDD formulations), incorporates calendar and lag effects, and assesses performance and robustness over an extended hold-out period (2024–2025) through diagnostic checks.
 
 Together, these objectives aim to deliver a transparent and adaptive forecasting framework that enhances predictive accuracy while deepening understanding of how weather and behavioural factors shape daily electricity demand — supporting the State Electricity Commission (SEC) Victoria in data-driven energy system planning.
 
@@ -1379,7 +1379,7 @@ The clustering was performed using the daily PCA-composite weather features — 
 
 We used the `mclust` package in R, which automatically fits multiple candidate GMMs and selects the optimal number of clusters based on the Bayesian Information Criterion (BIC). Models with between 3 and 6 clusters were tested; the BIC indicated that a six-cluster solution achieved a good balance between parsimony and meteorological interpretability. The Gaussian Mixture Model (GMM) is applied as an intermediate feature-engineering step to identify data-driven weather regimes—referred to as local seasons. Unlike predictive models, GMM is not trained or tested for performance; instead, it is fitted once on the entire 2019–2025 weather dataset to capture the full range of climatic patterns. Using the PCA-combined weather features (Tmax, Tmin, and Solar), the GMM clusters days with similar weather conditions, allowing for soft probabilistic membership across transitional periods.
 
-The month–cluster composition shown in @fig-gmm-month, together with the summary statistics in @tbl-local-season-summary, illustrates that the six GMM-defined local seasons capture meteorological patterns in Victoria with high realism and interpretability. Hot & Sunny and Hot & Partly Cloudy clusters dominate during December–February, representing peak-summer conditions of intense solar exposure and elevated temperatures.Conversely, Cold & Cloudy and Cold & Clear prevail from June–August, describing distinct winter regimes—the former typified by overcast, moisture-laden days, and the latter by clear, radiatively cold conditions.Transitional clusters—Mild & Moderate and Warm & Bright—appear mainly in autumn (March–May) and spring (September–November), respectively, signifying smooth climatic transitions between heating- and cooling-dominated periods across Victoria’s seasonal cycle.
+The month–cluster composition in @fig-gmm-month, together with the summary statistics in @tbl-local-season-summary, demonstrates that the six GMM-defined local seasons effectively capture Victoria’s meteorological cycle with clear seasonal realism. Hot & Very Sunny and Warm & Bright clusters dominate from December to February, representing the hot, high-solar summer period. In contrast, Cold & Cloudy and Cold & Clear prevail from June to August, reflecting distinct winter regimes—the former associated with overcast, moisture-laden conditions, and the latter with clear, radiatively cold nights. Transitional regimes— Mild & Cloudy and Mild & Sunny—occur mainly in autumn (March–May) and spring (September–November), respectively, depicting smooth shifts between heating- and cooling-dominated periods across Victoria’s seasonal cycle.
 
 This data-driven classification aligns broadly with conventional seasonal boundaries but provides greater granularity and flexibility, distinguishing between meteorologically meaningful sub-seasons that fixed calendar groupings cannot represent. The resulting local season labels thus form a robust categorical structure for regime-aware demand modeling, enabling temperature–demand relationships to adapt to actual weather regimes rather than arbitrary months.
 
@@ -1450,15 +1450,16 @@ label_map <- cluster_summary %>%
   transmute(
     cluster_id,
     cluster_label = case_when(
-      as.integer(cluster_id) == 1 ~ "Cold & Clear (Winter Peak)",
-      as.integer(cluster_id) == 2 ~ "Mild & Moderate (Autumn Transition)",
-      as.integer(cluster_id) == 3 ~ "Cold & Cloudy (Winter Typical)",
-      as.integer(cluster_id) == 4 ~ "Warm & Bright (Spring–Early Summer)",
-      as.integer(cluster_id) == 5 ~ "Hot & Sunny (Summer Peak)",
-      as.integer(cluster_id) == 6 ~ "Hot & Partly Cloudy (Humid Summer)",
-      TRUE ~ paste("Cluster", as.character(cluster_id))
+      cluster_id == 1 ~ "Cold & Clear ",
+      cluster_id == 2 ~ "Mild & Sunny",
+      cluster_id == 3 ~ "Cold & Cloudy",
+      cluster_id == 4 ~ "Warm & Bright",
+      cluster_id == 5 ~ "Hot & Very Sunny",
+      cluster_id == 6 ~ "Mild & Cloudy",
+      TRUE ~ as.character(cluster_id)
     )
   )
+
 
 
 dat_gmm_lab <- dat_gmm %>%
@@ -1530,12 +1531,12 @@ heatmap_month
 
 cluster_table <- tribble(
 ~Cluster, ~`Mean Tmax (°C)`, ~`Mean Tmin (°C)`, ~`Mean Solar (MJ/m²)`, ~`Key Features`, ~`Suggested Label`,
-1, 13.51,  2.95,  8.78, "Very cold nights and modest solar — clear, frosty winter days with strong radiative cooling.", "Cold & Clear (Winter Peak)",
-2, 16.81,  7.29, 10.99, "Mildly cool with moderate solar — transitional autumn weather.", "Mild & Moderate (Autumn Transition)",
-3, 13.14,  6.94,  6.79, "Cold and cloudy with low solar — overcast, moisture-laden winter conditions.", "Cold & Cloudy (Winter Typical)",
-4, 26.17, 10.90, 18.51, "Warm and bright with strong solar — spring to early summer conditions.", "Warm & Bright (Spring–Early Summer)",
-5, 27.10, 12.50, 28.10, "Very hot and highly sunny — peak summer conditions.", "Hot & Sunny (Summer Peak)",
-6, 19.96, 12.06, 16.66, "Warm nights and moderate solar — humid or partly cloudy summer regime.", "Hot & Partly Cloudy (Humid Summer)"
+1, 13.51, 2.95, 8.78, "Very cold days with clear skies — classic deep winter conditions", "Cold & Clear (Winter Peak)",
+2, 16.81, 7.29, 10.99, "Cool and mild with moderate sunlight — early spring", "Mild & Sunny (Early Spring)",
+3, 13.14, 6.94, 6.79, "Cold, cloudy, low solar — overcast winter pattern", "Cold & Cloudy (Winter Typical)",
+4, 26.17, 10.90, 18.51, "Warm and bright — late spring to early summer", " Warm & Bright (Late Spring)",
+5, 27.10, 12.50, 28.10, "Hot and extremely sunny — midsummer conditions", " Hot & Very Sunny (Summer Peak)",
+6, 19.96, 12.06, 16.66, "Mild warm nights and moderate sunlight — autumn pattern", " Mild & Cloudy (Autumn Typical)"
 )
 
 cluster_table %>%
@@ -1721,13 +1722,21 @@ The modeling process employed a Generalized Additive Mixed Model (GAMM) framewor
 
 The training workflow followed standard best practices:
 
-Data split — training on 2019-07-01 to 2024-06-30, validation on 2024-07-01 to 2025-06-30.
+- Data split — training on 2019-07-01 to 2024-06-30, validation on 2024-07-01 to 2025-06-30.
 
-Automatic smoothness selection — ensuring balance between flexibility and generalization.
+- Automatic smoothness selection — ensuring balance between flexibility and generalization.
 
-Residual and diagnostic checks — confirming no systematic bias or autocorrelation.
+- Residual and diagnostic checks — confirming no systematic bias or autocorrelation.
 
-Model accuracy was evaluated using RMSE, MAE, MAPE, and R² on the held-out test set. This generalized procedure provides a robust, interpretable, and data-driven foundation for forecasting electricity demand under evolving climatic and behavioral conditions.
+Model performance was evaluated using three key metrics: Root Mean Square Error (RMSE), Mean Absolute Percentage Error (MAPE), and the Coefficient of Determination (R²).
+
+- RMSE measures the square root of the average squared deviation between predicted and actual demand, providing a comprehensive indicator of overall forecast accuracy while penalizing larger errors more heavily.
+
+- MAPE expresses the mean absolute deviation as a percentage of observed demand, enabling intuitive interpretation of forecast precision across different demand levels (e.g., a MAPE of 3% indicates that forecasts are typically within 3% of actual demand).
+
+- R² quantifies the proportion of variability in actual demand explained by the model, with higher values signifying stronger predictive and explanatory capability.
+
+Together, these metrics offer a clear and balanced assessment of model performance, reflecting both the accuracy of the forecasts and the model’s ability to capture underlying weather–demand relationships
 
 ## Comparison with different verions {#sec-model-comparison}
 
