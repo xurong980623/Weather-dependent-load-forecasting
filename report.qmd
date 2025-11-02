@@ -83,7 +83,19 @@ library(gratia)
 
 # Abstract
 
-Accurate electricity demand forecasting is critical for power system planning, operation, and reliability,particularly as the demand–weather relationship evolves under the influence of climate variability and growing behind-the-meter renewable generation.This project develops a weather-dependent load forecasting framework for Victoria (Australia) using data from 2013 to 2025, integrating electricity demand, meteorological, and rooftop solar data from the Australian Energy Market Operator (AEMO), Bureau of Meteorology (BoM), and Clean Energy Regulator (CER). Half-hourly grid demand is aggregated to daily values and merged with temperature and solar exposure data from three meteorological stations. To capture a unified weather signal, Principal Component Analysis (PCA) is applied to remove spatial redundancy and extract dominant weather drivers. In parallel, a Gaussian Mixture Model (GMM) is used to define local weather-based seasons, providing a data-driven alternative to conventional calendar seasons.A Generalized Additive Mixed Model (GAMM) is then formulated to predict daily electricity demand as a nonlinear function of temperature, temperature range, and solar exposure, while accounting for calendar effects and autocorrelation. The model captures key nonlinearities — such as the U-shaped temperature–demand relationship and asymmetric solar effects linked to rooftop PV saturation.Empirical results show strong performance, achieving R² ≈ 0.94 and MAPE ≈ 3–4% on out-of-sample data. Overall, the interpretable and adaptive GAMM framework enhances short-term forecasting capability and supports the State Electricity Commission (SEC) Victoria in data-driven planning that incorporates weather variability and solar exposure effects associated with behind-the-meter PV, contributing to a reliable and sustainable energy future.
+Accurate electricity demand forecasting is critical for power system planning, operation, and reliability—particularly as the relationship between demand and weather evolves under the influence of climate variability and the growth of behind-the-meter renewable generation.
+
+This project develops a weather-dependent load forecasting framework for Victoria (Australia) covering 2013–2025. The model integrates electricity demand, meteorological, and rooftop solar data from the Australian Energy Market Operator (AEMO), Bureau of Meteorology (BoM), and Clean Energy Regulator (CER). Half-hourly grid demand is aggregated to daily totals and merged with temperature and solar exposure from three meteorological stations.
+
+To capture a unified weather signal, Principal Component Analysis (PCA) removes spatial redundancy and extracts dominant temperature and solar drivers. In parallel, a Gaussian Mixture Model (GMM) defines local weather-based seasons, providing a data-driven alternative to fixed calendar seasons.
+
+A Generalized Additive Mixed Model (GAMM) predicts daily electricity demand as a nonlinear function of temperature, temperature range, and solar exposure, while accounting for calendar effects and autocorrelation. The model captures key nonlinearities—such as the U-shaped temperature–demand relationship and asymmetric solar effects linked to rooftop PV saturation.
+
+Empirical results show strong performance, achieving R² ≈ 0.94 and MAPE ≈ 3–4% on out-of-sample data. Overall, the interpretable and adaptive GAMM framework enhances short-term forecasting capability and supports the State Electricity Commission (SEC) Victoria in data-driven planning that incorporates weather variability and solar exposure effects associated with distributed PV.
+
+All analysis and modeling were conducted in R, primarily using the `tidyverse` for data manipulation, `mclust` for GMM clustering, and `mgcv` for GAMM modeling. Custom R scripts were written for data integration, feature engineering, and evaluation, with results visualized using `ggplot2`.
+
+repo-url: "https://github.com/xurong980623/Weather-dependent-load-forecasting"
 
 # Introduction
 
@@ -2326,9 +2338,9 @@ plot.margin = margin(t = 6, r = 4, b = 2, l = 4)
 
 Residual diagnostics from the GAM model (see Figure @fig-resid-by-season) reveal heteroskedasticity, where residual spread varies systematically across local seasons. Specifically, winter regimes exhibit larger residual variance, while mild or sunny regimes show tighter distributions. This violates the constant-variance assumption of standard GAMs.
 
-To address this, we introduce a Generalized Additive Mixed Model (GAMM) with a group-specific variance structure: {weights = varIdent(form = \~ 1 \| local_season)}.
+To address this, we introduce a Generalized Additive Mixed Model (GAMM) with a group-specific variance structure: `varIdent(~1 | local_season)`.
 
-This allows residual variance to differ by local season, explicitly modeling heteroskedasticity rather than ignoring it. The approach yields more reliable standard errors and smoother residual behavior across conditions. As shown in Figures @fig-gamm-stdresid and @fig-gamm-forecast, the variance-weighted GAMM substantially reduces heteroskedasticity and maintains high predictive accuracy (R² ≈ 0.94, MAPE ≈ 3 %). This confirms that the `varIdent(~1 | local_season)` specification effectively stabilizes residual variance while preserving model interpretability and out-of-sample performance.
+This allows residual variance to differ by local season, explicitly modeling heteroskedasticity rather than ignoring it. The approach yields more reliable standard errors and smoother residual behavior across conditions. As shown in Figures @fig-gamm-stdresid and @fig-gamm-forecast, the variance-weighted GAMM substantially reduces heteroskedasticity and maintains high predictive accuracy (R² ≈ 0.94, MAPE ≈ 3.28 %). This confirms that the `varIdent(~1 | local_season)` specification effectively stabilizes residual variance while preserving model interpretability and out-of-sample performance.
 
 The varIdent structure models, rather than removes, heteroskedasticity by assigning separate residual variances to each local season. While raw residuals still vary by season, the standardized residuals—scaled by each group’s estimated σ—show consistent spread across predictors, confirming that the GAMM appropriately captures season-dependent variance patterns.
 
@@ -2472,10 +2484,7 @@ p_forecast
 
 
 ```
-
-All training and testing was implemented in R, primarily utilizing the tidyverse for data manipulation, `mclust` for the GMM clustering, and mgcv for GAMM modeling . Custom R scripts were written to perform the data integration, feature engineering, and evaluation, demonstrating proficiency in coding for data processing, statistical modeling, and visualization (e.g., using ggplot for diagnostic plots, which were assembled into multi-panel figures for the report)
-
-Keeping the training window fixed (2019–2024) and recursively forecasting over 2024–2025, the variance-weighted GAMM maintained high short-term accuracy, with MAPE around 1.5–2.5% for 3–14-day horizons. R² remained above 0.88 and MAPE below 3.2% across all horizons, confirming robustness. Performance gradually degraded for month-ahead forecasts (MAPE ≈ 2.5–3.5%), as summarized in Table @tbl-horizon-results. This behaviour reflects the expected accumulation of forecast uncertainty over longer horizons, confirming the model’s suitability for short-term operational forecasting within a one-year horizon.
+Keeping the training window fixed (2019–2024) and recursively forecasting over 2024–2025, the variance-weighted GAMM demonstrated consistently strong accuracy across multiple forecast horizons. Short-term forecasts were highly reliable, achieving R² = 0.78–0.93 and MAPE between 1.68% and 2.58% for 3–14-day horizons. Even for the 30-day horizon, performance remained solid (R² = 0.87, MAPE = 2.51%), while the year-ahead forecast retained a high explanatory power (R² = 0.94) with only moderate error (MAPE = 3.28%). Overall, accuracy declined gradually with longer horizons—consistent with the expected accumulation of forecast uncertainty—confirming the model’s robustness for short- to medium-term operational forecasting within a one-year horizon, as summarized in Table @tbl-horizon-results.
 
 ```{r tbl-horizon-results, warning= FALSE}
 #| label: tbl-horizon-results
@@ -2564,7 +2573,7 @@ knitr::kable(results, caption = NULL)
 
 ## Forecasts after 2025-07-01 with GAMM
 
-To evaluate the model’s short-term generalization ability beyond the training period, the variance-weighted GAMM (introduced in Section @sec-gamm-heteroskedasticity) was applied to forecast daily electricity demand for July 2025. As shown in Figure @fig-gamm-forecast-2025, the model continues to track observed demand closely beyond the training horizon, with forecast errors remaining low (RMSE ≈ 5.5 GWh, MAPE ≈ 3%). This demonstrates that the model generalizes well under new weather and photovoltaic conditions, capturing the overall demand dynamics and weekly variations effectively. Slight underfitting during colder winter days suggests some residual sensitivity to extreme low-temperature events, but overall, the GAMM framework remains robust for short-term operational forecasting.
+To evaluate the model’s short-term generalization ability beyond the training period, the variance-weighted GAMM (introduced in Section @sec-gamm-heteroskedasticity) was applied to forecast daily electricity demand for July 2025. As shown in Figure @fig-gamm-forecast-2025, the model continues to track observed demand closely beyond the training horizon, with forecast errors remaining low (RMSE ≈ 5.5 GWh, MAPE ≈ 3.14%). This demonstrates that the model generalizes well under new weather and photovoltaic conditions, capturing the overall demand dynamics and weekly variations effectively. Slight underfitting during colder winter days suggests some residual sensitivity to extreme low-temperature events, but overall, the GAMM framework remains robust for short-term operational forecasting.
 
 ```{r fig-gamm-forecast-2025}
 #| label: fig-gamm-forecast-2025
@@ -2873,7 +2882,26 @@ knitr::kable(
 
 # Appendix B — Full GAMM Smooth Plots
 
-\`\`\`{r} #\| label: fig-gamm-all #\| fig-cap: "All smooth terms of the fitted GAMM (auto-paged)." #\| warning: false #\| message: false #\| cache: true #\| fig-width: 8 #\| fig-height: 6 #\| out-width: 100% #\| fig-align: center plot(m_gamm\$gam, pages = 0, residuals = TRUE, shade = TRUE, scale = 0)
+```{r fig-gamm-all}
+#| label: fig-gamm-all
+#| fig-cap: "All smooth terms of the fitted GAMM (auto-paged)."
+#| warning: false
+#| message: false
+#| cache: true
+#| fig-width: 8
+#| fig-height: 6
+#| out-width: 100%
+#| fig-align: center
 
-These figures display all smooth terms from the fitted GAMM, including temperature-, solar-, and range-related effects by local season, interaction tensors, and cyclic seasonal components.\
+plot(
+  m_gamm$gam,
+  pages = 0,       # auto-page through all smooths in one figure
+  residuals = TRUE, # show residuals overlayed
+  shade = TRUE,     # 95% CI shading
+  scale = 0         # common scale across panels
+)
+
+```
+
+These figures display all smooth terms from the fitted GAMM, including temperature-, solar-, and range-related effects by local season, interaction tensors, and cyclic seasonal components.
 They are included here for completeness; main findings are discussed in Section @sec-Interpretation-of-Model-Components.
