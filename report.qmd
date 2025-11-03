@@ -1,21 +1,30 @@
 ---
 title: "Modeling Weather-Dependent Electricity Demand in Victoria Using Generalized Additive Mixed Models (GAMMs)"
 author:
-  - name: "Rong Xu"
-    affiliation: "Monash University"
-  - name: "Rachael E Quill (Mentor)"
-    affiliation: "State Electricity Commission Victoria"
+  - name: Rong Xu
+    affiliation: Monash University
+  - name: Rachael E Quill (Mentor)
+    affiliation: State Electricity Commission Victoria
 
-repo-url: "https://github.com/xurong980623/Weather-dependent-load-forecasting"
+date: "2025-11-03"
+
 format:
   html:
     toc: true
+    toc-depth: 3
     number-sections: true
     cap-location: bottom
+    smooth-scroll: true
+    link-external-icon: true
+    link-external-newwindow: true
   pdf:
     toc: true
     number-sections: true
     cap-location: bottom
+    pdf-engine: lualatex
+
+execute:
+  echo: false  
 
 crossref:
   fig-prefix: "Figure"
@@ -28,6 +37,7 @@ editor: visual
 freeze: auto
 
 bibliography: references.bib
+link-citations: true
 ---
 
 ```{r echo=FALSE}
@@ -101,7 +111,9 @@ Empirical results show strong performance, achieving R² ≈ 0.94 and MAPE ≈ 3
 
 All analysis and modeling were conducted in R, primarily using the `tidyverse` for data manipulation, `mclust` for GMM clustering, and `mgcv` for GAMM modeling. Custom R scripts were written for data integration, feature engineering, and evaluation, with results visualized using `ggplot2`.
 
-The full analysis and reproducible workflow are available on GitHub: https://github.com/xurong980623/Weather-dependent-load-forecasting
+The full analysis and reproducible workflow are available on GitHub[^repo]. As discussed in Section [@sec-discussion], the reproducible scripts on GitHub enable further experimentation.
+
+[^repo]: [https://github.com/xurong980623/Weather-dependent-load-forecasting](https://github.com/xurong980623/Weather-dependent-load-forecasting)
 
 # Introduction
 

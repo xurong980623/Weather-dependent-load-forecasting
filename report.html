@@ -8,6 +8,7 @@
 
 <meta name="author" content="Rong Xu">
 <meta name="author" content="Rachael E Quill (Mentor)">
+<meta name="dcterms.date" content="2025-11-03">
 
 <title>Modeling Weather-Dependent Electricity Demand in Victoria Using Generalized Additive Mixed Models (GAMMs)</title>
 <style>
@@ -55,6 +56,7 @@ div.csl-indent {
 <script src="report_files/libs/bootstrap/bootstrap.min.js"></script>
 <link href="report_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
 <link href="report_files/libs/bootstrap/bootstrap.min.css" rel="stylesheet" id="quarto-bootstrap" data-mode="light">
+<style>html{ scroll-behavior: smooth; }</style>
 <script src="report_files/libs/kePrint-0.0.1/kePrint.js"></script>
 
 <link href="report_files/libs/lightable-0.0.1/lightable.css" rel="stylesheet">
@@ -122,11 +124,10 @@ div.csl-indent {
   <li><a href="#future-work" id="toc-future-work" class="nav-link" data-scroll-target="#future-work"><span class="header-section-number">7.5</span> Future work:</a></li>
   </ul></li>
   <li><a href="#sec-conclusion" id="toc-sec-conclusion" class="nav-link" data-scroll-target="#sec-conclusion"><span class="header-section-number">8</span> Conclusion</a></li>
-  <li><a href="#references-apa-7th" id="toc-references-apa-7th" class="nav-link" data-scroll-target="#references-apa-7th"><span class="header-section-number">9</span> References (APA 7th)</a></li>
   <li><a href="#appendix-appendices" id="toc-appendix-appendices" class="nav-link" data-scroll-target="#appendix-appendices">(APPENDIX) Appendices</a>
   <ul class="collapse">
-  <li><a href="#app-gamm-terms" id="toc-app-gamm-terms" class="nav-link" data-scroll-target="#app-gamm-terms"><span class="header-section-number">9.1</span> (APPENDIX A) Full GAMM Term Extraction</a></li>
-  <li><a href="#app-gamm-smooths" id="toc-app-gamm-smooths" class="nav-link" data-scroll-target="#app-gamm-smooths"><span class="header-section-number">9.2</span> (APPENDIX B) Full GAMM Smooth Plots</a></li>
+  <li><a href="#app-gamm-terms" id="toc-app-gamm-terms" class="nav-link" data-scroll-target="#app-gamm-terms"><span class="header-section-number">8.1</span> (APPENDIX A) Full GAMM Term Extraction</a></li>
+  <li><a href="#app-gamm-smooths" id="toc-app-gamm-smooths" class="nav-link" data-scroll-target="#app-gamm-smooths"><span class="header-section-number">8.2</span> (APPENDIX B) Full GAMM Smooth Plots</a></li>
   </ul></li>
   </ul>
 <div class="quarto-alternate-formats"><h2>Other Formats</h2><ul><li><a href="report.pdf"><i class="bi bi-file-pdf"></i>PDF</a></li></ul></div></nav>
@@ -164,6 +165,12 @@ div.csl-indent {
 <div class="quarto-title-meta">
 
       
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">November 3, 2025</p>
+    </div>
+  </div>
   
     
   </div>
@@ -181,7 +188,7 @@ div.csl-indent {
 <p>A Generalized Additive Mixed Model (GAMM) predicts daily electricity demand as a nonlinear function of temperature, temperature range, and solar exposure, while accounting for calendar effects and autocorrelation. The model captures key nonlinearities—such as the U-shaped temperature–demand relationship and asymmetric solar effects linked to rooftop PV saturation.</p>
 <p>Empirical results show strong performance, achieving R² ≈ 0.94 and MAPE ≈ 3.28% (<a href="#fig-gamm-forecast" class="quarto-xref">Figure&nbsp;12</a>) on out-of-sample data. Overall, the interpretable and adaptive GAMM framework enhances short-term forecasting capability and supports the State Electricity Commission (SEC) Victoria in data-driven planning that incorporates weather variability and solar exposure effects associated with distributed PV.</p>
 <p>All analysis and modeling were conducted in R, primarily using the <code>tidyverse</code> for data manipulation, <code>mclust</code> for GMM clustering, and <code>mgcv</code> for GAMM modeling. Custom R scripts were written for data integration, feature engineering, and evaluation, with results visualized using <code>ggplot2</code>.</p>
-<p>The full analysis and reproducible workflow are available on GitHub: https://github.com/xurong980623/Weather-dependent-load-forecasting</p>
+<p>The full analysis and reproducible workflow are available on GitHub<a href="#fn1" class="footnote-ref" id="fnref1" role="doc-noteref"><sup>1</sup></a>. As discussed in Section <a href="#sec-discussion" class="quarto-xref">Section&nbsp;7</a>, the reproducible scripts on GitHub enable further experimentation.</p>
 </section>
 <section id="introduction" class="level1" data-number="2">
 <h1 data-number="2"><span class="header-section-number">2</span> Introduction</h1>
@@ -3642,27 +3649,10 @@ Table&nbsp;11: Grouped Interpretation of GAMM Smooth Terms
 <p>The model achieved strong predictive performance — with MAPE ≈ 3.28% and R² ≈ 0.94 on out-of-sample data — and effectively anticipated demand peaks and troughs in a period marked by high weather volatility and increasing rooftop solar PV penetration (see <a href="#fig-gamm-forecast" class="quarto-xref">Figure&nbsp;12</a> and <a href="#fig-gamm-forecast-2025" class="quarto-xref">Figure&nbsp;13</a>). The inclusion of solar exposure as a predictor was particularly impactful, quantifying the reduction in grid demand from distributed generation — a crucial factor in modern energy systems. The interpretability of the GAMM provided actionable insights: for example, the estimated temperature–demand curves and solar effects revealed how much additional demand arises per degree drop on cold days and how much solar exposure offsets demand on clear summer days. These insights have practical implications for system operations (e.g., triggering demand response during heatwaves) and energy policy (e.g., quantifying the benefit of efficiency measures in winter heating).</p>
 <p>In summary, this study demonstrates a successful synthesis of data-driven modelling and domain knowledge in short-term load forecasting. By unifying regional weather data, objectively defining local-season clusters, and employing a flexible nonlinear model structure, we achieved both high accuracy and interpretability. These attributes make the approach practical and trustworthy for planners and policymakers who require not only reliable forecasts but also a clear understanding of demand drivers. Moving forward, adopting such methodologies can enhance grid resilience, support renewable integration, and ensure reliable power supply amid increasing weather variability and evolving consumption patterns.</p>
 </section>
-<section id="references-apa-7th" class="level1" data-number="9">
-<h1 data-number="9"><span class="header-section-number">9</span> References (APA 7th)</h1>
-<p>AEMO. (2024, August). Electricity demand forecasting methodology. Australian Energy Market Operator. https://www.aer.gov.au</p>
-<p>Aquila, G., de Queiroz, A. R., Pamplona, E. de O., &amp; Junior, P. R. M. (2023). Short-term load forecasting for operational planning: Overview. Energies, 16(21), Article 21. https://scholars.duke.edu</p>
-<p>Australian Energy Council. (2019, June). Solar report – June 2019. https://www.energycouncil.com.au</p>
-<p>Bureau of Meteorology (BoM). (2024). Climate data online — Daily temperature and solar exposure. Australian Government. https://www.bom.gov.au/climate/data/</p>
-<p>Clean Energy Regulator (CER). (2024). Small-scale renewable energy scheme data — Postcode installations. https://cer.gov.au/markets/reports-and-data/small-scale-installation-postcode-data</p>
-<p>Essential Services Commission. (2025, February). Draft decision on solar feed-in tariffs [Press release]. https://www.pv-magazine-australia.com</p>
-<p>Fan, J., Zhang, C., &amp; Wang, Y. (2022). Nonlinear models for short-term electricity demand forecasting under climate variability. Energy Economics, 108, 105872. https://doi.org/10.1016/j.eneco.2022.105872</p>
-<p>Hastie, T., &amp; Tibshirani, R. (2017). Generalized additive models. Chapman and Hall/CRC. https://www.taylorfrancis.com/books/mono/10.1201/9780203753781/generalized-additive-models-hastie</p>
-<p>Hong, T., &amp; Fan, S. (2016). Probabilistic electric load forecasting: A tutorial review. International Journal of Forecasting, 32(3), 914–938. https://doi.org/10.1016/j.ijforecast.2015.11.011</p>
-<p>Neumann, O., Heine, C., &amp; Fichtner, W. (2023). Using weather data in energy time series forecasting: The benefit of input data transformations. Energy Informatics, 6(44). https://energyinformatics.springeropen.com</p>
-<p>SAS Institute. (2022, July 18). Accuracy versus interpretability? With GAMs, you can have both. SAS Data Science Blog. https://blogs.sas.com</p>
-<p>Wood, S. N. (2017). Generalized additive models: An introduction with R (2nd ed.). Chapman and Hall/CRC. https://www.taylorfrancis.com/books/mono/10.1201/9781315370279/generalized-additive-models-simon-wood</p>
-<p>Baur, L., Ditschuneit, K., Schambach, M., Kaymakci, C., Wollmann, T., &amp; Sauer, A. (2024). Explainability and interpretability in electric load forecasting using machine learning techniques: A review. Energy and AI, 16, 100358. https://doi.org/10.1016/j.egyai.2024.100358</p>
-<p>Misiurek, K., Olkuski, T., &amp; Zyśk, J. (2025). Review of methods and models for forecasting electricity consumption. Energies, 18(15), 4032. https://doi.org/10.3390/en18154032</p>
-</section>
 <section id="appendix-appendices" class="level1 unnumbered">
 <h1 class="unnumbered">(APPENDIX) Appendices</h1>
-<section id="app-gamm-terms" class="level2" data-number="9.1">
-<h2 data-number="9.1" class="anchored" data-anchor-id="app-gamm-terms"><span class="header-section-number">9.1</span> (APPENDIX A) Full GAMM Term Extraction</h2>
+<section id="app-gamm-terms" class="level2" data-number="8.1">
+<h2 data-number="8.1" class="anchored" data-anchor-id="app-gamm-terms"><span class="header-section-number">8.1</span> (APPENDIX A) Full GAMM Term Extraction</h2>
 <p>This appendix provides the full table of smooth, tensor, and parametric terms from the fitted GAMM, including significance levels and interpretation categories. For clarity, only summarized interpretations are discussed in Section <a href="#sec-Interpretation-of-Model-Components" class="quarto-xref">Section&nbsp;6.2</a>, while the detailed term listing is shown below.</p>
 <div class="cell">
 <div id="tbl-gamm-terms" class="cell quarto-float anchored">
@@ -3978,8 +3968,8 @@ Table&nbsp;12: All model terms and interpretations in GAMM (Tmean_pca / Trange_p
 </div>
 </div>
 </section>
-<section id="app-gamm-smooths" class="level2" data-number="9.2">
-<h2 data-number="9.2" class="anchored" data-anchor-id="app-gamm-smooths"><span class="header-section-number">9.2</span> (APPENDIX B) Full GAMM Smooth Plots</h2>
+<section id="app-gamm-smooths" class="level2" data-number="8.2">
+<h2 data-number="8.2" class="anchored" data-anchor-id="app-gamm-smooths"><span class="header-section-number">8.2</span> (APPENDIX B) Full GAMM Smooth Plots</h2>
 <div class="cell" data-layout-align="center">
 <div class="cell-output-display">
 <div id="fig-gamm-all-1" class="quarto-figure quarto-figure-center quarto-float anchored" data-fig-align="center">
@@ -4035,6 +4025,7 @@ Figure&nbsp;18: All smooth terms of the fitted GAMM
 </section>
 </section>
 
+
 <div id="quarto-appendix" class="default"><section class="quarto-appendix-contents" role="doc-bibliography" id="quarto-bibliography"><h2 class="anchored quarto-appendix-heading">References</h2><div id="refs" class="references csl-bib-body hanging-indent" data-entry-spacing="0" role="list">
 <div id="ref-AEMO2024" class="csl-entry" role="listitem">
 AEMO. 2024. <span>“Electricity Demand Forecasting Methodology.”</span> Australian Energy Market Operator. <a href="https://www.aer.gov.au">https://www.aer.gov.au</a>.
@@ -4072,7 +4063,12 @@ Neumann, O., C. Heine, and W. Fichtner. 2023. <span>“Using Weather Data in Ene
 <div id="ref-Wood2017" class="csl-entry" role="listitem">
 Wood, S. N. 2017. <em>Generalized Additive Models: An Introduction with r</em>. 2nd ed. Chapman; Hall/CRC. <a href="https://www.taylorfrancis.com/books/mono/10.1201/9781315370279/generalized-additive-models-simon-wood">https://www.taylorfrancis.com/books/mono/10.1201/9781315370279/generalized-additive-models-simon-wood</a>.
 </div>
-</div></section></div></main>
+</div></section><section id="footnotes" class="footnotes footnotes-end-of-document" role="doc-endnotes"><h2 class="anchored quarto-appendix-heading">Footnotes</h2>
+
+<ol>
+<li id="fn1"><p><a href="https://github.com/xurong980623/Weather-dependent-load-forecasting">https://github.com/xurong980623/Weather-dependent-load-forecasting</a><a href="#fnref1" class="footnote-back" role="doc-backlink">↩︎</a></p></li>
+</ol>
+</section></div></main>
 <!-- /main column -->
 <script id="quarto-html-after-body" type="application/javascript">
 window.document.addEventListener("DOMContentLoaded", function (event) {
@@ -4169,6 +4165,13 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
         if (link.dataset.originalHref !== undefined) {
           link.href = link.dataset.originalHref;
         }
+          // target, if specified
+          link.setAttribute("target", "_blank");
+          if (link.getAttribute("rel") === null) {
+            link.setAttribute("rel", "noopener");
+          }
+          // default icon
+          link.classList.add("external");
       }
     }
   function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
@@ -4488,4 +4491,5 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
 
 
 
+<script src="report_files/libs/quarto-html/zenscroll-min.js"></script>
 </body></html>
