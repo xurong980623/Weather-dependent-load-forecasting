@@ -101,7 +101,7 @@ library(gratia)
 
 Accurate electricity demand forecasting is critical for power system planning, operation, and reliability—particularly as the relationship between demand and weather evolves under the influence of climate variability and the growth of behind-the-meter renewable generation.
 
-This project develops a weather-dependent load forecasting framework for Victoria (Australia) covering 2013–2025. The model integrates electricity demand, meteorological, and rooftop solar data from the Australian Energy Market Operator (AEMO), Bureau of Meteorology (BoM), and Clean Energy Regulator (CER). Half-hourly grid demand is aggregated to daily totals and merged with temperature and solar exposure from three meteorological stations.
+This project develops a weather-dependent load forecasting framework for Victoria (Australia). The model integrates electricity demand, meteorological, and rooftop solar data from the Australian Energy Market Operator (AEMO), Bureau of Meteorology (BoM), and Clean Energy Regulator (CER). Half-hourly grid demand is aggregated to daily totals and merged with temperature and solar exposure from three meteorological stations.
 
 To capture a unified weather signal, Principal Component Analysis (PCA) removes spatial redundancy and extracts dominant temperature and solar drivers. In parallel, a Gaussian Mixture Model (GMM) defines local weather-based seasons, providing a data-driven alternative to fixed calendar seasons.
 
@@ -121,49 +121,51 @@ Electricity load forecasting is a cornerstone of modern energy management, under
 
 In contemporary power systems, the increasing penetration of renewable and distributed energy resources amplifies the need to explicitly account for these weather–demand interactions. Traditional time-series models effectively capture temporal autocorrelation but often overlook exogenous weather influences, whereas purely regression-based or machine learning models can incorporate weather data yet struggle with nonlinear relationships and multicollinearity among predictors.
 
-To address these challenges, This report explores an advanced approach that integrates time-series structure with nonlinear weather effects, aiming to enhance both forecast accuracy and interpretability for daily electricity demand in Victoria, Australia, focusing on Melbourne and surrounding regions.
+To address these challenges, this report explores an advanced approach that integrates time-series structure with nonlinear weather effects, aiming to enhance both forecast accuracy and interpretability for daily electricity demand in Victoria, Australia, focusing on Melbourne and surrounding regions.
 
-## Background:
+## Background
 
-Victoria’s Energy Transition Victoria’s electricity system is undergoing a structural transformation driven by decarbonisation policy, renewable investment, and rapid household PV adoption. The State Electricity Commission (SEC) of Victoria, re-established in 2023, plays a central role in this transition as a government-owned energy company focused on accelerating renewable investment, supporting household electrification, and building Victoria’s renewable energy workforce. Since the launch of the Solar Homes Program in 2018, rooftop PV installations across Victoria have expanded rapidly, contributing to increasingly irregular grid-level demand patterns. This trend reflects a structural shift in how economic activity translates into electricity demand, with the relationship becoming more weather- and behaviour-sensitive due to widespread rooftop PV adoption and ongoing electrification. Weather conditions—particularly temperature and solar exposure—now play a dominant role in shaping daily consumption. The growth of distributed energy resources, including rooftop PV and emerging battery systems, has made load profiles more responsive to climatic and behavioural factors than ever before.
+Victoria’s electricity system is undergoing a structural transformation driven by decarbonisation policy, renewable investment, and rapid household PV adoption. The State Electricity Commission (SEC) of Victoria, re-established in 2023, plays a central role in this transition as a government-owned energy company focused on accelerating renewable investment, supporting household electrification, and building Victoria’s renewable energy workforce. Since the launch of the Solar Homes Program in 2018, rooftop PV installations across Victoria have expanded rapidly, contributing to increasingly irregular grid-level demand patterns. This shift signifies a broader structural transformation in how economic activity translates into electricity consumption. Weather has long been a dominant determinant of electricity demand; however, its impact has now changed, reflecting growing behavioural and structural sensitivities driven by behind-the-meter renewables—particularly rooftop PV—and the ongoing process of electrification. Consequently, load profiles have become more responsive to climatic and behavioural factors than ever before.
 
-## Literature Context:
+## Literature Context
 
-Historically, utility forecasters have incorporated weather variables—especially temperature—into regression or time-series models to improve forecast accuracy. Simple approaches often relied on a single representative weather station or used equal-weight averages across several nearby stations. Recent studies highlight more advanced techniques for integrating spatially distributed weather data, such as dimensionality reduction and unsupervised clustering of meteorological features [@Neumann2023].
+In this project, daily demand is modelled instead of half-hourly load to focus on broader weather-driven trends while mitigating short-term noise related to intraday variability.
 
-For example, Principal Component Analysis (PCA) can be used to construct a “virtual weather station” that summarises the dominant shared variation across multiple sites—capturing a unified temperature and solar signal that represents regional weather conditions [@Neumann2023]. Similarly, clustering approaches such as Gaussian Mixture Models (GMMs) can identify typical weather regimes or local seasons, helping to overcome the mismatch between calendar-based seasons and real energy-consumption behaviour [@Aquila2023].
+Modern forecasting approaches, including machine learning (ML) and advanced statistical models, are increasingly applied to capture nonlinear relationships between weather and electricity demand [@Misiurek2025]. However, these data-driven methods often lack interpretability, which limits their usefulness for understanding the underlying drivers of energy-system change [@Baur2024].
 
-Modern forecasting approaches, including machine learning (ML) and advanced statistical models, are increasingly applied to capture nonlinear relationships between weather and electricity demand [@Misiurek2025]. However, ML and AI methods often lack interpretability, which limits their usefulness for understanding the underlying drivers of energy-system change [@Baur2024]. In contrast, Generalized Additive Models (GAMs) and their extension, Generalized Additive Mixed Models (GAMMs), balance flexibility with transparency. They allow smooth nonlinear effects of predictors such as temperature and solar exposure while retaining interpretability of each variable’s contribution [@HastieTibshirani2017; @Wood2017].
+In contrast, Generalized Additive Models (GAMs) and their extension, Generalized Additive Mixed Models (GAMMs), balance flexibility with transparency by allowing smooth nonlinear effects of predictors such as temperature and solar exposure while preserving interpretability of each variable’s contribution [@HastieTibshirani2017; @Wood2017]. The GAMM framework, implemented via the mgcv package in R [@Wood2017], further accounts for correlated errors and hierarchical effects through the inclusion of random effects or correlation structures—particularly relevant for daily aggregated demand data, where residuals may exhibit temporal dependence due to persistent weather and behavioural factors.
 
-GAMs can be extended to a Generalized Additive Mixed Model (GAMM) to account for correlated errors or hierarchical effects, using the mgcv package in R [@Wood2017]. This formulation enables inclusion of random effects or correlation structures, which is particularly relevant for daily aggregated demand data, where residuals may exhibit day-to-day dependence due to temporal persistence in weather and behavioural factors. In this project, daily demand is modelled instead of half-hourly load to focus on broader weather-driven trends while mitigating short-term noise related to intraday variability.
+Applications of GAM-based models have therefore gained popularity in load forecasting because they bridge the gap between accuracy and interpretability, providing insights that purely data-driven approaches cannot [@Fan2022; @Misiurek2025].
 
-Applications of GAM-based models have gained popularity in load forecasting because they bridge the gap between accuracy and interpretability, providing insights that purely data-driven methods cannot [@Fan2022; @Misiurek2025]. In Australia, the Australian Energy Market Operator [@AEMO2024] has adopted weather-normalisation practices consistent with this rationale, underscoring the importance of interpretable models that can capture evolving climate and weather effects on electricity demand. There is a growing need for adaptive forecasting models that can represent how electricity-use patterns evolve with climate variability and increasing rooftop-solar adoption. As more households install PV systems, midday grid demand drops and evening peaks intensify—the well-known “duck-curve” effect—highlighting the importance of models that can dynamically represent these changing demand behaviours.
+To support such interpretable modeling, it is equally critical to construct representative and spatially consistent weather features. Historically, utility forecasters have incorporated weather variables — especially temperature into regression or time-series models to improve forecast accuracy. Those approaches often relied on a single representative weather station or used equal-weight averages across several nearby stations. Recent studies highlight more advanced techniques for integrating spatially distributed weather data, such as dimensionality reduction and unsupervised clustering of meteorological features [@Neumann2023]. For example, Principal Component Analysis (PCA) can be used to construct a “virtual weather station” that summarises the dominant shared variation across multiple sites—capturing a unified temperature and solar signal that represents regional weather conditions [@Neumann2023].
+
+In Australia, the Australian Energy Market Operator [@AEMO2024] has adopted weather-normalisation practices consistent with this rationale, underscoring the importance of interpretable models that can capture evolving climate and weather effects on electricity demand. There is a growing need for adaptive forecasting models that can represent how electricity-use patterns evolve with climate variability and increasing rooftop-solar adoption. As more households install PV systems, midday grid demand drops and evening peaks intensify—the well-known “duck-curve” effect—highlighting the importance of models that can dynamically represent these changing demand behaviours. Similarly, clustering approaches such as Gaussian Mixture Models (GMMs) can identify typical weather regimes or local seasons, helping to overcome the mismatch between calendar-based seasons and real energy-consumption behaviour [@Aquila2023].
 
 ## Motivation
 
-For system operators and planners, short- and medium-term forecasting (short-term: up to two weeks; medium-term: up to one year) is critical for ensuring grid reliability, reserve allocation, and electricity market efficiency. However, existing forecasting models often rely on static, linear relationships that fail to represent the evolving, nonlinear effects of weather and rooftop solar adoption on electricity demand. Hence, the motivation of this study is to develop an adaptive and interpretable modelling framework that captures the evolving, nonlinear effects of weather and rooftop solar on electricity demand.
+For energy market participants such as the State Electricity Commission (SEC) Victoria, accurate short- and medium-term electricity demand forecasting (short-term: up to two weeks; medium-term: up to one year) is critical for maintaining system reliability, supporting market bidding strategies, and guiding investment planning. Reliable forecasts underpin decisions on reserve allocation, energy procurement, and integration of renewable generation within the National Electricity Market (NEM). However, existing forecasting models often rely on static, linear relationships that fail to represent the evolving, nonlinear effects of weather and rooftop solar adoption on electricity demand. Hence,this study is motivated by SEC Victoria’s need for an adaptive and interpretable modelling framework that can quantify how weather and distributed generation jointly influence electricity demand while providing transparent insights to support evidence-based decision-making in the evolving energy market.
 
-## Objectives: {#sec-objectives}
+## Objectives {#sec-objectives}
 
 The key research question guiding this study is: How can daily electricity demand be forecast more accurately and interpretably by incorporating weather dependencies and evolving solar impacts?
 
-To address this, the project pursues four connected objectives:
+To address this question, the project pursues four high-level objectives aligned with SEC Victoria’s role as an energy market participant:
 
--   Develop a unified weather signal by applying Principal Component Analysis (PCA) to combine temperature and solar exposure data from multiple meteorological stations, reducing spatial redundancy and extracting dominant regional weather patterns.
+- Integrate regional weather information — consolidate temperature and solar data from multiple locations to represent Victoria’s dominant weather patterns. This enables SEC to better anticipate climate-driven fluctuations in demand across the state.
 
--   Construct temperature-based features — using the PCA-derived temperature component, compute daily mean temperature (Tmean), temperature range (Trange), and heating and cooling degree days (HDD and CDD) to capture nonlinear and asymmetric thermal effects on electricity demand, where HDD and CDD measure deviations from a comfort threshold that drive heating and cooling behaviour.
+- Characterize nonlinear thermal relationships — quantify how temperature and solar exposure jointly influence demand through heating and cooling effects. Understanding these nonlinear responses supports more reliable operational and market forecasts under extreme or changing weather conditions.
 
--   Identify data-driven weather regimes (“local seasons”) using Gaussian Mixture Model (GMM) clustering, providing flexible seasonal segmentation that better aligns with real-world weather transitions than fixed calendar seasons.
+- Define data-driven seasonal regimes — identify flexible, weather-based “local seasons” that align with actual energy-use behaviour rather than rigid calendar definitions. These insights improve SEC’s ability to interpret seasonal demand dynamics and manage forecasting under climate variability.
 
--   Develop, compare, and interpret a Generalized Additive Mixed Model (GAMM) that integrates these weather features and seasonal clusters, evaluates alternative temperature representations (raw temperature, PCA-based temperature, and HDD/CDD formulations), incorporates calendar and lag effects, and assesses performance and robustness over an extended hold-out period (2024–2025) through diagnostic checks.
+- Develop an interpretable forecasting framework — build and evaluate a transparent, adaptive model that links weather, solar adoption, and behavioural patterns to electricity demand. The resulting framework enhances SEC’s analytical capability to forecast demand accurately, communicate insights clearly, and inform decisions on reliability planning, market participation, and renewable integration.
 
-The detailed exploratory analysis supporting these objectives is presented in @sec-EDA .Together, these objectives aim to deliver a transparent and adaptive forecasting framework that enhances predictive accuracy while deepening understanding of how weather and behavioural factors shape daily electricity demand — supporting the State Electricity Commission (SEC) Victoria in data-driven energy system planning.
+The detailed exploratory analysis supporting these objectives is presented in @sec-EDA. Together, these objectives aim to deliver a transparent and adaptive forecasting framework with high predictive accuracy while deepening understanding of how weather and behavioural factors shape daily electricity demand — supporting the State Electricity Commission (SEC) Victoria in data-driven energy system planning.
 
-## Significance:
+## Significance
 
-Improving load forecast accuracy has tangible benefits for the State Electricity Commission (SEC) Victoria. Even small reductions in forecasting error can translate into substantial cost savings and operational efficiencies. The enhanced accuracy achieved by our weather-informed GAMM framework—yielding daily errors of only around 3–4% (R² ≈ 0.94)—is therefore of significant practical value. Beyond accuracy, the model provides interpretability by quantifying how temperature, solar exposure, and local seasonal regimes influence electricity demand. These insights help policy-makers understand the impact of climate variability and rooftop PV adoption on energy consumption. This project was undertaken as part of a university capstone in collaboration with a government energy agency, highlighting its applied and policy-relevant significance.
+Improving load forecast accuracy has tangible benefits for the State Electricity Commission (SEC) Victoria. Even small reductions in forecasting error can translate into substantial cost savings and operational efficiencies. The accuracy achieved by our weather-informed GAMM framework — yielding daily errors of only around 3–4% (R² ≈ 0.94)—is therefore of significant practical value. Beyond accuracy, the model provides interpretability by quantifying how temperature, solar exposure, and local seasonal regimes influence electricity demand. These insights help energy market decision-makers understand the impact of climate variability and rooftop PV adoption on energy consumption. This project was undertaken as part of a university capstone in collaboration with a government energy agency, highlighting its applied and policy-relevant significance.
 
-The remainder of this report is structured as follows: The remainder of this report is organized as follows. @sec-data describes the data sources and preprocessing procedures used to construct the integrated demand–weather dataset. @sec-EDA presents the exploratory data analysis (EDA), highlighting key patterns and relationships that justify the adoption of local-season clustering and guide the feature engineering process that motivates the modelling approach. @sec-Methodology outlines the modelling framework and overall workflow of the Generalized Additive Mixed Model (GAMM), covering the processes of model fitting, evaluation, residual diagnostic checking, and forecasting. @sec-results summarizes the overall model fitting outcomes from sec-Methodology and interprets the model components. Finally, @sec-discussion and @sec-conclusion present the principal findings, discuss implications for system planning, and identify limitations and directions for future improvement.
+The remainder of this report is organized as follows. @sec-data describes the data sources and preprocessing procedures used to construct the integrated demand–weather dataset. @sec-EDA presents the exploratory data analysis (EDA), highlighting key patterns and relationships that justify the adoption of local-season clustering and guide the feature engineering process that motivates the modelling approach. @sec-Methodology outlines the modelling framework and overall workflow of the Generalized Additive Mixed Model (GAMM), covering the processes of model fitting, evaluation, residual diagnostic checking, and forecasting. @sec-results summarizes the overall model fitting outcomes from @sec-Methodology and interprets the model components. Finally, @sec-discussion and @sec-conclusion present the principal findings, discuss implications for system planning, and identify limitations and directions for future improvement.
 
 # Data and Pre-processing {#sec-data}
 
@@ -331,9 +333,9 @@ full_daily_by_station_wide <- full_daily_by_station |>
 
 We utilize three primary data sources covering July 1, 2013 through August 5, 2025:
 
--   Electricity Demand Data: Region-wide half-hourly load data for Victoria (specifically, VIC1 Scheduled Demand from the Australian Energy Market Operator[@AEMO2024]). These records measure total electrical demand from the grid (excluding uncontrollable rooftop PV generation).
+-   Electricity Demand Data: Region-wide half-hourly load data for Victoria were sourced from the Australian Energy Market Operator’s VIC1 Scheduled Demand dataset [@AEMO2024]. These measurements represent the total electrical demand drawn from the transmission grid, excluding behind-the-meter generation such as rooftop photovoltaic (PV) output and other non-scheduled, self-consumed renewable generation. In other words, the data reflect only grid-supplied demand after the impact of distributed solar generation has been netted out.
 
--   Weather Data: Daily meteorological observations from the Australian Bureau of Meteorology [@BoM2024] at three stations in Victoria: Melbourne (Olympic Park), Morwell, and Ballarat. For each station, we obtained daily maximum temperature (Tmax, °C), minimum temperature (Tmin, °C), and global solar exposure (Solar, in MJ/m²). These stations were chosen to represent different sub-regions – Melbourne (urban coastal), Morwell (Latrobe Valley, east inland), and Ballarat (higher altitude inland) – thereby capturing spatial variation in weather that might affect electricity usage. Using multiple stations guards against localized anomalies and provides a more robust measure of the overall weather conditions influencing the state’s demand.
+-   Weather Data: Daily meteorological observations were obtained from the Australian Bureau of Meteorology (BoM, 2024) for three representative stations in Victoria—Melbourne (Olympic Park), Morwell (Latrobe Valley east inland), and Ballarat (higher-altitude inland). For each station, we collected daily maximum temperature (Tmax, °C), minimum temperature (Tmin, °C), and global solar exposure (Solar, MJ/m²). These locations were selected to capture the state’s climatic diversity—urban coastal, valley inland, and elevated inland regions—and to ensure broad coverage of weather conditions that influence electricity demand. Importantly, these same stations are also used by AEMO for state-wide energy demand forecasting, providing alignment with established industry practice and enhancing the robustness of this study’s weather representation.
 
 -   Rooftop PV data: Postcode-level PV installation capacity and system counts from the Clean Energy Regulator [@CER2024]. These data reflect the cumulative installed PV capacity (kW) and monthly installation growth since 2011.
 
@@ -344,8 +346,11 @@ Together, these three datasets provide a comprehensive 12-year record linking Vi
 ### Data Integration
 
 -   Aggregation: Half-hourly AEMO demand data were summed across 48 intervals per day to produce daily total demand (MWh).
+
 -   Alignment: Daily BoM weather variables (Tmax, Tmin, Solar exposure) were merged with demand data by date.
+
 -   PV data integration (complementary): CER monthly rooftop PV capacity (kW) and installation counts (by postcode) were aggregated to the state level (Victoria) and incorporated as contextual data to indicate the structural shift in grid demand associated with rapid PV uptake[@AEC2019; @ESC2025]. These data were not used as model inputs, but rather to inform period selection and interpretation.
+
 -   The final integrated dataset spans 1 July 2013 – 30 June 2025, ensuring consistent temporal alignment across sources.
 
 ### Data Cleaning and Validation
@@ -450,7 +455,7 @@ solar_installs_vic_finyear <- solar_installs_vic %>%
 
 # Exploratory Data Analysis {#sec-EDA}
 
-After integrating and validating all data sources, we proceed to exploratory data analysis (EDA) to investigate key relationships among key variables, and structural patterns that inform later model design. to motivate subsequent feature construction and modeling choices.The exploratory analysis aims to understand relationships The analysis proceeds from initial data screening to pattern discovery and feature justification.
+Following the integration and validation of all data sources, exploratory data analysis (EDA) was undertaken to uncover relationships and structural patterns that guided feature construction and model development.
 
 ## Demand Trends and Seasonality
 
@@ -588,11 +593,6 @@ p_combined
 ## Weather Station Relationships and PCA Unification
 
 As shown in @fig-vshape-stations, daily electricity demand in Victoria exhibits a clear nonlinear (V-shaped) relationship with both Tmax and Tmin at Ballarat, Melbourne (Olympic Park), and Morwell. Demand rises under heat (cooling load) and cold (heating load) periods, and is lowest on mild days. Solar exposure shows a weaker, partly inverse association with demand, consistent with rooftop-PV offset on sunny days.
-
-@tbl-vif-summary indicates notable dependence between Tmax and Tmin (r ≈ 0.6–0.7) and moderately elevated VIFs, implying multicollinearity among raw station inputs. Because Victoria’s weather co-moves across sites, using all station variables risks unstable estimates.
-
-To address this, we apply Principal Component Analysis (PCA) to standardized station variables separately for Tmax, Tmin, and Solar. The first two components (PC1, PC2) explain ~ 87% of variance, capturing the statewide signal and inland–coastal contrasts. The resulting PCA-based weights (see in @tbl-pca-weights) quantify each station’s contribution to unified regional indices. Using PC1+PC2 loadings, we form `tmax_pca`, `tmin_pca`, and `solar_pca`, preserving key spatial structure while removing multicollinearity —- yielding more stable, interpretable weather inputs for modeling.
-
 ```{r fig-vshape-stations}
 #| fig-cap: "Temperature and Solar Relationships with Electricity Demand"
 #| fig-width: 12
@@ -664,6 +664,7 @@ p_vshape_station <- p_vshape_station &
 p_vshape_station
 ```
 
+@tbl-vif-summary indicates notable dependence between Tmax and Tmin (r ≈ 0.6–0.7) and moderately elevated VIFs, implying multicollinearity among raw station inputs. Since Victoria’s weather co-moves across sites, using all station variables risks unstable estimates.
 ```{r tbl-vif-summary}
 #| tbl-cap: "Tmax–Tmin Correlation and Multicollinearity (VIF) Summary. Correlation reflects dependence between Tmax and Tmin; VIF assesses multicollinearity among {Tmax, Tmin, Solar}."
 
@@ -719,6 +720,8 @@ vif_gt <- summary_vif %>%
 vif_gt
 
 ```
+
+To address this, we apply Principal Component Analysis (PCA) to standardized station variables separately for Tmax, Tmin, and Solar. The first two components (PC1, PC2) explain ~ 87% of variance, capturing the statewide signal and inland–coastal contrasts. The resulting PCA-based weights (see in @tbl-pca-weights) quantify each station’s contribution to unified regional indices. Using PC1+PC2 loadings, we form `tmax_pca`, `tmin_pca`, and `solar_pca`, preserving key spatial structure while removing multicollinearity —- yielding more stable, interpretable weather inputs for modeling.
 
 ```{r}
 
@@ -871,11 +874,6 @@ weights_table_gt
 Accurately representing thermal conditions is essential for modeling electricity demand, as temperature strongly drives both heating and cooling behavior. While the PCA-derived variables (tmax_pca, tmin_pca, solar_pca) already capture unified, multicollinearity-free weather signals across stations, the high correlation between tmax_pca and tmin_pca suggests they still express a shared latent temperature factor. To obtain more interpretable and functionally relevant predictors for demand modeling, we therefore derived composite temperature indicators that summarize overall comfort, diurnal variability, and thermal stress beyond simple maximum and minimum temperatures.
 
 These composite indicators, summarized in @tbl-temp-vars, are evaluated against the original PCA-derived temperatures to determine which construction best captures demand sensitivity.
-
-@fig-temp-comparison visualizes the correlation structures (top) and the corresponding nonlinear demand–temperature relationships (bottom). The results show that the three temperature formulations—mean–range composites and degree-day metrics—exhibit progressively lower inter-variable correlation, indicating reduced redundancy among thermal indicators. While Tmean effectively captures broad comfort-related variations, and Trange represents the diurnal amplitude of temperature, the HDD/CDD transformation isolates heating and cooling effects more explicitly. Notably, the HDD/CDD metrics display an almost linear association with electricity demand, consistent with AEMO’s empirical temperature–load response behavior for Victoria.
-
-In @sec-model-comparison, we compare model variants that incorporate these thermal indicators—assessing their explanatory power, predictive accuracy, and ability to capture nonlinear seasonal behavior.
-
 ```{r tbl-temp-vars}
 #| label: tbl-temp-vars
 #| tbl-cap: 'Derived temperature variables based on PCA-combined station data and AEMO Victoria comfort thresholds (16.5 °C for heating, 18 °C for cooling)'
@@ -906,6 +904,8 @@ kable(temp_vars, format = "html", escape = FALSE, align = "lcc") %>%
 
 
 ```
+
+@fig-temp-comparison visualizes the correlation structures (top) and the corresponding nonlinear demand–temperature relationships (bottom). The results show that the three temperature formulations—mean–range composites and degree-day metrics—exhibit progressively lower inter-variable correlation, indicating reduced redundancy among thermal indicators. While Tmean effectively captures broad comfort-related variations, and Trange represents the diurnal amplitude of temperature, the HDD/CDD transformation isolates heating and cooling effects more explicitly. Notably, the HDD/CDD metrics display an almost linear association with electricity demand, consistent with AEMO’s empirical temperature–load response behavior for Victoria.
 
 ```{r}
 # Holidays (VIC)
@@ -1042,23 +1042,150 @@ combined_plot
 
 ```
 
-## Weather–Demand Relationships: Over Time, by Season, and Weather Interactions (PCA-Based Tmax/Tmin)
+In @sec-model-comparison, we compare model variants that incorporate these thermal indicators—assessing their explanatory power, predictive accuracy, and ability to capture nonlinear seasonal behavior.
 
-Electricity demand in Victoria shows a clear and evolving sensitivity to weather conditions, shaped primarily by temperature and increasingly by solar exposure. As illustrated in @fig-tmax-demand, @fig-tmin-demand, @fig-solar-demand, demand patterns display strong nonlinearities, temporal shifts, and interactive effects between temperature and solar radiation.
+## Weather–Dependent Seasonal and Intraday Demand Patterns {#sec-feature-engineering} 
 
-Across years, the demand–temperature relationship forms a distinct U-shaped curve, with the lowest demand occurring under mild thermal conditions and rising sharply during both hot and cold extremes. The steepening of both sides of this curve in recent years highlights intensifying heating and cooling sensitivities, reflecting changing consumption behavior, appliance penetration, and rooftop PV adoption that reshapes load profiles throughout the day.
+Over the most recent six years, Victoria’s electricity demand patterns have shifted markedly across seasons. To ensure consistency with AEMO’s reporting conventions, monthly averages in @fig-seasonal-intraday (left) are plotted according to the AEMO season year (April–March) rather than the calendar year (January–December). As shown in @fig-seasonal-intraday (left), winter demand has increased, reflecting stronger heating requirements and limited rooftop PV generation during shorter daylight hours. In contrast, demand during summer, spring, and autumn has declined overall, largely due to longer daylight periods and the growing impact of rooftop PV generation offsetting daytime grid consumption.
 
-Seasonally, the nature of this relationship varies substantially:
+The intraday demand profile in @fig-seasonal-intraday (right) further illustrates this evolution: as PV uptake has expanded, midday demand has progressively decreased, deepening the characteristic “duck curve.” However, during winter—when solar output and daylight hours are minimal—PV contributes little to offsetting load. This seasonal imbalance in solar influence results in a persistent winter sensitivity.
 
--   Winter shows an almost linear decline in demand with increasing temperature, as heating load dominates and warmer days reduce electricity use.
+```{r fig-seasonal-intraday}
+#| label: fig-seasonal-intraday
+#| fig-cap: "Monthly and Intraday Electricity Demand Patterns in Victoria: Left — Monthly average demand aligned by AEMO season year (Apr–Mar); Right — Duck curve evolution by financial year with PV capacity labels."
+#| fig-width: 12
+#| fig-height: 6.8
+#| out-width: 100%
+#| fig-align: center
+#| warning: false
+#| message: false
+#| dpi: 220
 
--   Summer is strongly temperature-driven, with demand escalating under high heat but moderated by rooftop PV offset, where solar exposure simultaneously drives cooling load and reduces midday grid consumption.
+# --- 1) Monthly averages (aligned to AEMO season year Apr–Mar) ---
 
--   Spring and autumn exhibit nonlinear transitional responses, reflecting mixed heating and cooling influences and greater variability in daily weather conditions.
+month_levels <- c("Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar")
 
-The minimum temperature (Tmin) effect follows a similar but weaker pattern—contributing mainly to overnight heating demand—while maximum temperature (Tmax) remains the dominant short-term driver of daily load variation. Meanwhile, solar exposure shows an evolving inverse association with demand, particularly after 2019, as distributed PV generation increasingly offsets grid load during bright, high-irradiance periods. This transition is most evident in winter and shoulder seasons, where low solar exposure (cloudy days) coincides with higher demand, while summer patterns reveal temperature dominance intertwined with underlying PV effects.
+monthly_demand <- full_daily_pca %>%
+filter(date <= as.Date("2025-06-30")) %>%
+mutate(
+year  = year(date),
+month = factor(month.abb[month(date)], levels = month_levels)
+) %>%
+group_by(year, month) %>%
+summarise(demand = mean(demand, na.rm = TRUE), .groups = "drop")
 
-Collectively, these results demonstrate that Victorian electricity demand has become both more weather-sensitive and more complex over time. Temperature continues to dictate the core nonlinear structure of demand, while solar exposure introduces a moderating, time-dependent interaction that now plays a crucial role in shaping daily and seasonal demand patterns. These findings justify the use of nonlinear, seasonally structured GAMM frameworks that can capture both temperature effects and temperature–solar interactions in subsequent modeling.
+p_monthly <- ggplot(monthly_demand, aes(x = month, y = demand, group = factor(year), colour = factor(year))) +
+geom_line(linewidth = 1) +
+scale_colour_viridis_d(option = "C", end = 0.9) +
+labs(
+title = "Monthly Average Electricity Demand (Victoria)",
+subtitle = "Aligned by AEMO Season Year (Apr–Mar)",
+x = NULL, y = "Average Demand (MWh)",
+colour = "Year"
+) +
+theme_minimal(base_size = 12) +
+theme(
+axis.text.x = element_text(angle = 45, hjust = 1),
+plot.title = element_text(face = "bold", size = 12),
+legend.position = "right",
+legend.title = element_text(size = 9),
+legend.text = element_text(size = 9)
+)
+
+# --- 2) Intraday “Duck Curve” evolution by financial year ---
+
+demand_fy <- demand %>%
+unnest(datetime) %>%
+mutate(date = as.Date(datetime)) %>%
+filter(between(date, as.Date("2013-07-01"), as.Date("2025-06-30"))) %>%
+mutate(
+finyear = if_else(month(date) >= 7,
+paste0(year(date), "-", year(date) + 1),
+paste0(year(date) - 1, "-", year(date)))
+)
+
+# PV capacity summary by financial year
+
+solar_capacity_fy <- solar_capacity_vic %>%
+mutate(
+finyear = if_else(
+month(month) >= 7,
+paste0(year(month), "-", year(month) + 1),
+paste0(year(month) - 1, "-", year(month))
+)
+) %>%
+group_by(finyear) %>%
+summarise(
+cum_capacity_MWh = max(cum_capacity_kw, na.rm = TRUE) / 1000,
+.groups = "drop"
+)
+
+# Intraday demand average by hour
+
+demand_curve_fy <- demand_fy %>%
+mutate(hod = hour(datetime) + minute(datetime)/60) %>%
+group_by(finyear, hod) %>%
+summarise(mean_demand = mean(demand, na.rm = TRUE), .groups = "drop") %>%
+left_join(solar_capacity_fy, by = "finyear")
+
+# Midday PV annotation
+
+pv_notes <- demand_curve_fy %>%
+filter(finyear %in% c("2013-2014","2019-2020","2024-2025"), hod == 12) %>%
+mutate(label = paste0(finyear, "\nPV: ", round(cum_capacity_MWh), " MWh"))
+
+p_duck <- ggplot(demand_curve_fy, aes(hod, mean_demand, colour = finyear)) +
+geom_line(linewidth = 1) +
+geom_label_repel(
+data = pv_notes,
+aes(label = label),
+fill = "white", colour = "black", size = 3,
+nudge_y = 100, show.legend = FALSE
+) +
+scale_colour_viridis_d(option = "C", end = 0.9) +
+labs(
+title = "Duck Curve Evolution in Victoria (by Financial Year)",
+subtitle = "Midday labels show PV capacity for 2013–14, 2019–20, 2024–25",
+x = "Hour of Day", y = "Average Demand (MWh)", colour = "Financial Year"
+) +
+theme_minimal(base_size = 12) +
+theme(
+plot.title = element_text(face = "bold", size = 12),
+axis.title = element_text(size = 10),
+axis.text  = element_text(size = 9),
+legend.position = "right",
+legend.title = element_text(size = 9),
+legend.text = element_text(size = 9)
+)
+
+# --- 3) Combine the two panels neatly ---
+
+p_monthly_adj <- p_monthly + theme(plot.margin = margin(t = 5, r = 16, b = 5, l = 5))
+p_duck_adj    <- p_duck + theme(plot.margin = margin(t = 5, r = 5, b = 5, l = 16))
+
+(p_monthly_adj | p_duck_adj) +
+plot_layout(widths = c(1, 1)) +
+plot_annotation(
+title = "Seasonal and Intraday Electricity Demand Patterns in Victoria (2013–2025)",
+subtitle = "Left: Monthly demand trends (AEMO season-year alignment) | Right: Duck curve evolution by financial year",
+theme = theme(
+plot.title = element_text(face = "bold", hjust = 0.5, size = 15),
+plot.subtitle = element_text(hjust = 0.5, size = 11, colour = "grey30"),
+plot.margin = margin(t = 8, r = 6, b = 4, l = 6)
+)
+)
+
+```
+
+Electricity demand in Victoria also shows a clear and evolving sensitivity to temperature and solar exposure, as illustrated in @fig-tmax-demand and @fig-tmin-demand. The relationship between temperature and demand forms a distinct U-shaped curve, with demand rising sharply under both cold and hot extremes. The steepening of this curve over time highlights intensifying heating and cooling sensitivities —  reflecting evolving behaviour, appliance penetration, and PV adoption that reshape daily load profiles.
+
+Seasonally, these relationships vary substantially:
+
+- Winter: Demand declines nearly linearly with temperature, as heating load dominates and warmer days reduce electricity use.
+
+- Summer: Demand rises with temperature but is moderated by PV generation, which offsets midday consumption.
+
+- Spring and Autumn: Transitional patterns show nonlinear responses, reflecting mixed heating and cooling effects.
 
 ```{r fig-tmax-demand}
 #| label: fig-tmax-demand
@@ -1201,6 +1328,8 @@ plot.margin = margin(t = 8, r = 8, b = 4, l = 8)
 )
 ```
 
+Solar exposure further introduces a moderating, time-dependent effect: high solar days now correspond to lower grid demand, particularly after 2019, when distributed PV generation became widespread. This inverse association is most evident in winter and the shoulder seasons, where low solar exposure (cloudy days) coincides with elevated demand.
+
 ```{r fig-solar-demand}
 #| label: fig-solar-demand
 #| fig-cap: "Solar–Demand relationships by financial year and by season."
@@ -1269,151 +1398,17 @@ plot.margin = margin(t = 8, r = 8, b = 4, l = 8)
 
 
 ```
-
-## Seasonal and Intraday Demand Patterns {#sec-feature-engineering}
-
-Over the most recent six years, Victoria’s electricity demand patterns have shifted markedly across seasons. As shown in @fig-seasonal-intraday (left), winter demand has increased, reflecting stronger heating requirements and limited rooftop PV generation during shorter daylight hours. In contrast, demand during summer, spring, and autumn has declined overall, largely due to longer daylight periods and the growing impact of rooftop PV generation offsetting daytime grid consumption. The intraday demand profile in @fig-seasonal-intraday (right) further illustrates this evolution: as PV uptake has expanded, midday demand has progressively decreased, deepening the characteristic “duck curve.” However, during winter—when solar output and daylight hours are minimal—PV contributes little to offsetting load. This seasonal imbalance in solar influence results in a persistent winter sensitivity, which temperature- and solar-based models often struggle to represent accurately, leading to underfitting of winter demand in the final model results. These observations emphasize the need for seasonally adaptive modeling frameworks, such as local-season clustering and nonlinear GAMM structures introduced in @sec-model-comparison, to better capture the evolving winter variability and complex temperature–solar interactions shaping Victoria’s electricity demand.
-
-Overall, these changes indicate that calendar-based seasons no longer align with true climatic or behavioral demand regimes, underscoring the importance of data-driven seasonal definitions in modern electricity demand forecasting.
-
-```{r fig-seasonal-intraday}
-#| label: fig-seasonal-intraday
-#| fig-cap: "Monthly and Intraday Electricity Demand Patterns in Victoria: Left — Monthly average demand aligned by AEMO season year (Apr–Mar); Right — Duck curve evolution by financial year with PV capacity labels."
-#| fig-width: 12
-#| fig-height: 6.8
-#| out-width: 100%
-#| fig-align: center
-#| warning: false
-#| message: false
-#| dpi: 220
-
-# --- 1) Monthly averages (aligned to AEMO season year Apr–Mar) ---
-
-month_levels <- c("Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar")
-
-monthly_demand <- full_daily_pca %>%
-filter(date <= as.Date("2025-06-30")) %>%
-mutate(
-year  = year(date),
-month = factor(month.abb[month(date)], levels = month_levels)
-) %>%
-group_by(year, month) %>%
-summarise(demand = mean(demand, na.rm = TRUE), .groups = "drop")
-
-p_monthly <- ggplot(monthly_demand, aes(x = month, y = demand, group = factor(year), colour = factor(year))) +
-geom_line(linewidth = 1) +
-scale_colour_viridis_d(option = "C", end = 0.9) +
-labs(
-title = "Monthly Average Electricity Demand (Victoria)",
-subtitle = "Aligned by AEMO Season Year (Apr–Mar)",
-x = NULL, y = "Average Demand (MWh)",
-colour = "Year"
-) +
-theme_minimal(base_size = 12) +
-theme(
-axis.text.x = element_text(angle = 45, hjust = 1),
-plot.title = element_text(face = "bold", size = 12),
-legend.position = "right",
-legend.title = element_text(size = 9),
-legend.text = element_text(size = 9)
-)
-
-# --- 2) Intraday “Duck Curve” evolution by financial year ---
-
-demand_fy <- demand %>%
-unnest(datetime) %>%
-mutate(date = as.Date(datetime)) %>%
-filter(between(date, as.Date("2013-07-01"), as.Date("2025-06-30"))) %>%
-mutate(
-finyear = if_else(month(date) >= 7,
-paste0(year(date), "-", year(date) + 1),
-paste0(year(date) - 1, "-", year(date)))
-)
-
-# PV capacity summary by financial year
-
-solar_capacity_fy <- solar_capacity_vic %>%
-mutate(
-finyear = if_else(
-month(month) >= 7,
-paste0(year(month), "-", year(month) + 1),
-paste0(year(month) - 1, "-", year(month))
-)
-) %>%
-group_by(finyear) %>%
-summarise(
-cum_capacity_MWh = max(cum_capacity_kw, na.rm = TRUE) / 1000,
-.groups = "drop"
-)
-
-# Intraday demand average by hour
-
-demand_curve_fy <- demand_fy %>%
-mutate(hod = hour(datetime) + minute(datetime)/60) %>%
-group_by(finyear, hod) %>%
-summarise(mean_demand = mean(demand, na.rm = TRUE), .groups = "drop") %>%
-left_join(solar_capacity_fy, by = "finyear")
-
-# Midday PV annotation
-
-pv_notes <- demand_curve_fy %>%
-filter(finyear %in% c("2013-2014","2019-2020","2024-2025"), hod == 12) %>%
-mutate(label = paste0(finyear, "\nPV: ", round(cum_capacity_MWh), " MWh"))
-
-p_duck <- ggplot(demand_curve_fy, aes(hod, mean_demand, colour = finyear)) +
-geom_line(linewidth = 1) +
-geom_label_repel(
-data = pv_notes,
-aes(label = label),
-fill = "white", colour = "black", size = 3,
-nudge_y = 100, show.legend = FALSE
-) +
-scale_colour_viridis_d(option = "C", end = 0.9) +
-labs(
-title = "Duck Curve Evolution in Victoria (by Financial Year)",
-subtitle = "Midday labels show PV capacity for 2013–14, 2019–20, 2024–25",
-x = "Hour of Day", y = "Average Demand (MWh)", colour = "Financial Year"
-) +
-theme_minimal(base_size = 12) +
-theme(
-plot.title = element_text(face = "bold", size = 12),
-axis.title = element_text(size = 10),
-axis.text  = element_text(size = 9),
-legend.position = "right",
-legend.title = element_text(size = 9),
-legend.text = element_text(size = 9)
-)
-
-# --- 3) Combine the two panels neatly ---
-
-p_monthly_adj <- p_monthly + theme(plot.margin = margin(t = 5, r = 16, b = 5, l = 5))
-p_duck_adj    <- p_duck + theme(plot.margin = margin(t = 5, r = 5, b = 5, l = 16))
-
-(p_monthly_adj | p_duck_adj) +
-plot_layout(widths = c(1, 1)) +
-plot_annotation(
-title = "Seasonal and Intraday Electricity Demand Patterns in Victoria (2013–2025)",
-subtitle = "Left: Monthly demand trends (AEMO season-year alignment) | Right: Duck curve evolution by financial year",
-theme = theme(
-plot.title = element_text(face = "bold", hjust = 0.5, size = 15),
-plot.subtitle = element_text(hjust = 0.5, size = 11, colour = "grey30"),
-plot.margin = margin(t = 8, r = 6, b = 4, l = 6)
-)
-)
-
-```
+Collectively, these findings demonstrate that Victorian electricity demand has become more weather-dependent, nonlinear, and seasonally complex. Temperature remains the dominant driver, while solar exposure introduces critical interactions that vary across seasons and times of day. These dynamics justify the use of data-driven, seasonally adaptive modelling frameworks, such as local-season clustering and nonlinear GAMM structures introduced in @sec-model-comparison, to capture evolving winter variability and temperature–solar interactions shaping Victoria’s electricity demand.
 
 ## Local Season Clustering via GMM
 
-To move beyond rigid calendar-based definitions of seasons, we applied a Gaussian Mixture Model (GMM) to identify data-driven “local seasons” — clusters of days with similar weather conditions. The goal was to group days by their prevailing temperature and solar exposure patterns, thereby capturing true meteorological regimes that influence electricity demand.
+Building on the patterns observed in @fig-seasonal-intraday, where energy behaviours do not always align with traditional calendar seasons, we move beyond rigid calendar-based definitions of seasons by applying a Gaussian Mixture Model (GMM). The rationale is that the same temperature can elicit very different consumption responses depending on the season and perceived comfort level — for instance, 20 °C may be considered cool and heating-driven in summer but mild and comfortable in winter. By clustering days based on prevailing temperature and solar exposure patterns, the GMM identifies data-driven “local seasons” that better reflect the true meteorological and behavioural regimes influencing electricity demand
 
 The clustering was performed using the daily PCA-composite weather features — tmax_pca, tmin_pca, and solar_pca — as the input variables. Before clustering, all features were standardized (mean = 0, sd = 1) to ensure equal weighting. Conceptually, the GMM assumes that these feature vectors come from a mixture of multivariate normal distributions, each representing a distinct weather regime. Each component is characterized by a mean vector (cluster centroid) and a covariance matrix (spread and orientation).
 
 We used the `mclust` package in R, which automatically fits multiple candidate GMMs and selects the optimal number of clusters based on the Bayesian Information Criterion (BIC). Models with between 3 and 6 clusters were tested; the BIC indicated that a six-cluster solution achieved a good balance between parsimony and meteorological interpretability. The Gaussian Mixture Model (GMM) is applied as an intermediate feature-engineering step to identify data-driven weather regimes—referred to as local seasons. Unlike predictive models, GMM is not trained or tested for performance; instead, it is fitted once on the entire 2019–2025 weather dataset to capture the full range of climatic patterns. Using the PCA-combined weather features (Tmax, Tmin, and Solar), the GMM clusters days with similar weather conditions, allowing for soft probabilistic membership across transitional periods.
 
 The month–cluster composition in @fig-gmm-month, together with the summary statistics in @tbl-local-season-summary, demonstrates that the six GMM-defined local seasons effectively capture Victoria’s meteorological cycle with clear seasonal realism. Hot & Very Sunny and Warm & Bright clusters dominate from December to February, representing the hot, high-solar summer period. In contrast, Cold & Cloudy and Cold & Clear prevail from June to August, reflecting distinct winter regimes—the former associated with overcast, moisture-laden conditions, and the latter with clear, radiatively cold nights. Transitional regimes— Mild & Cloudy and Mild & Sunny—occur mainly in autumn (March–May) and spring (September–November), respectively, depicting smooth shifts between heating- and cooling-dominated periods across Victoria’s seasonal cycle.
-
-This data-driven classification aligns broadly with conventional seasonal boundaries but provides greater granularity and flexibility, distinguishing between meteorologically meaningful sub-seasons that fixed calendar groupings cannot represent. The resulting local season labels thus form a robust categorical structure for regime-aware demand modeling, enabling temperature–demand relationships to adapt to actual weather regimes rather than arbitrary months.
 
 ```{r}
 dat_6y <- dat %>%
@@ -1583,11 +1578,13 @@ locations = cells_column_labels(everything())
 )
 ```
 
-## Feature Engineering
+This data-driven classification aligns broadly with conventional seasonal boundaries but provides greater granularity and flexibility, distinguishing between meteorologically meaningful sub-seasons that fixed calendar groupings cannot represent. The resulting local season labels thus form a robust categorical structure for regime-aware demand modeling, enabling temperature–demand relationships to adapt to actual weather regimes rather than arbitrary months.
+
+## Feature Engineering Summary
 
 The feature-engineering process transformed raw weather, calendar, and demand data into a structured set of interpretable predictors that capture both short-term behavioral responses and long-term structural trends in Victoria’s electricity system. Each feature was motivated by EDA evidence and designed to align with real-world drivers of demand variability—ranging from temperature extremes and PV offset to seasonal clustering and autocorrelation effects.
 
-As summarized in @tbl-feature-engineering, the final feature set integrates six major categories: temporal controls, unified PCA weather signals, derived thermal indicators, autoregressive persistence, long-term cyclic trends, and regime-based seasonal factors. Together, these features provide a balanced foundation for the subsequent GAM and GAMM modeling, allowing the model to account for nonlinear, time-varying, and regime-dependent demand responses.
+As summarized in @tbl-feature-engineering, the final feature set integrates six major categories: temporal controls, unified PCA weather signals, derived thermal indicators, autoregressive persistence, long-term cyclic trends, and regime-based seasonal factors. 
 
 ```{r tbl-feature-engineering}
 #| label: tbl-feature-engineering
@@ -1638,9 +1635,15 @@ features_tbl %>%
 
 ```
 
-In summary, the EDA reinforced several key modeling decisions: the need for nonlinear temperature terms, the benefit of differentiating weather responses by season or regime, inclusion of calendar effects, and accounting for trend and autocorrelation. It also highlighted the growing impact of PV uptake, suggesting that a unified model could effectively capture 2019–2025 dynamics if designed with appropriate weather, temporal, and regime-based features.
+Together, these engineered features provide a robust foundation for the subsequent GAM and GAMM modeling, enabling the models to capture nonlinear, time-varying, and regime-dependent demand responses.
 
-The comprehensive feature-engineering process thus establishes a strong foundation for the modeling stage. By integrating weather, temporal, and local-season predictors, the dataset now reflects both the physical drivers of electricity demand and the behavioral responses across different regimes. The next section outlines the methodological framework—specifically, the development and comparison of Generalized Additive Models (GAMs) and Generalized Additive Mixed Models (GAMMs)—to quantify nonlinear, time-varying, and regime-dependent effects on Victoria’s electricity demand.
+In summary, the exploratory data analysis (EDA) reinforced several key modeling decisions:
+
+- the necessity of incorporating nonlinear temperature and solar terms;
+
+- the value of differentiating weather responses by season or regime, and accounting for calendar, trend, and autocorrelation effects; and
+
+- the growing influence of distributed PV uptake, suggesting that a unified model can effectively capture post-2019 dynamics when designed with appropriate weather, temporal, and regime-based features.
 
 # Methodology {#sec-Methodology}
 
@@ -1649,16 +1652,31 @@ Building on the engineered feature set, this section outlines the modeling frame
 We begin by describing the general GAM formulation, its smoothing structure, and the rationale for using nonlinear smooths over key predictors such as temperature and solar exposure. The subsequent section extends this to a mixed-effects GAMM, incorporating autocorrelation structures and local-season effects to address temporal dependence and weather-regime variation. Together, these methods provide a transparent and interpretable framework for modeling Victoria’s demand dynamics from 2019–2025.
 
 ## Model Specification
+The Generalized Additive Model (GAM) can be expressed as:
 
-The modeling framework is based on Generalized Additive Models (GAMs) and their extension, Generalized Additive Mixed Models (GAMMs). These models flexibly represent nonlinear relationships between electricity demand and meteorological predictors while capturing temporal dependence and seasonal heterogeneity.
+$$
+y_t = \beta_0 + \sum_j f_j(x_{j,t}) + \varepsilon_t, \quad \varepsilon_t \sim N(0, \sigma^2)
+$$
 
-The final model used in this study can be expressed as:
+where each smooth function `f_j()` captures a nonlinear effect of predictor `x_{j,t}` on the response `y_t` .  
 
-`D_t = t + tsint + tcost + Season + s(T_x, Season) + s(T_y, Season) + s(Solar, Season) + ti(T_x, Solar) + ti( T_y, Solar) + s(doy) + dow + is_holiday + D_{t-1} + D_{t-7}`
+However, the standard GAM assumes that residuals are independent and homoskedastic, which may not hold in time-series or grouped data such as electricity demand.
 
-where `D_t` is daily electricity demand (MWh); `T_x`, `T_y` denote temperature-related variables (e.g., Tmean, Trange, HDD, CDD); and the smooth functions `s()` and tensor interactions `ti()` allow for nonlinear and interaction effects across seasons. Autoregressive lags `D_{t-1}` and `D_{t-7}` capture short-term persistence and weekly cyclic patterns.
+To address this limitation, the model can be extended to a Generalized Additive Mixed Model (GAMM), which incorporates random effects and structured residual variance:
 
-This specification was implemented using the mgcv package [@Wood2017] in R 4.5.1, leveraging `bam()` / `gamm()` for efficient estimation with correlated residual structures. @tbl-model-grid and @tbl-gam-gamm-comparison summarize the model variants and the applied specification.
+$$
+y_t = \beta_0 + \sum_j f_j(x_{j,t}) + Zb + \varepsilon_t, \quad b \sim N(0, \Psi), \ \varepsilon_t \sim N(0, \Sigma)
+$$
+
+Here, `b` represents random effects capturing within-group dependence (e.g., local weather regimes), while the residual variance structure `Sigma` allows for heteroskedasticity across groups.  
+This formulation enables the model to capture both nonlinear predictor effects and correlated or uneven residual variability.
+
+The final model is specified as:
+Dₜ = t + tsinₜ + tcosₜ + Season + s(Tₓ, Season) + s(Tᵧ, Season) + s(Solar, Season) + ti(Tₓ, Solar) + ti(Tᵧ, Solar) + s(doy) + dow + is_holiday + Dₜ₋₁ + Dₜ₋₇
+
+where Dₜ is daily electricity demand (MWh); Tₓ and Tᵧ denote temperature-related variables (e.g., Tmean, Trange, HDD, CDD); the smooth functions `s()` and tensor-product interactions `ti()` represent smooth and tensor interaction terms capturing nonlinear and interaction effects across seasons; and Dₜ₋₁ and Dₜ₋₇ are autoregressive lags accounting for short-term persistence and weekly patterns.
+
+This specification was implemented using the mgcv package [@Wood2017] in R 4.5.1, leveraging `bam()` / `gamm()` for efficient estimation with correlated residual structures. @tbl-model-grid summarize the model variants.
 
 ```{r tbl-model-grid}
 #| label: tbl-model-grid
@@ -1684,74 +1702,9 @@ kable(
 ) %>% kable_styling(full_width = FALSE)
 ```
 
-```{r tbl-gam-gamm-comparison}
-#| label: tbl-gam-gamm-comparison
-#| tbl-cap: "Comparison of GAM, GAMM, and Applied Model Specifications"
-#| tbl-colwidths: [0.15, 0.35, 0.50]
-
-# Create the table content
-model_table <- tibble::tribble(
-  ~`Model Type`, ~`General Formula`, ~`Description / Components`,
-
-  # Row 1 — GAM
-  "Generalized Additive Model (GAM)",
-  "yₜ = β₀ + Σⱼ fⱼ(xⱼ,ₜ) + εₜ",
-  "Models nonlinear relationships between predictors xⱼ and response yₜ using smooth functions fⱼ(·).  
-  Assumes independent, identically distributed residuals εₜ ~ N(0, σ²).",
-
-  # Row 2 — GAMM
-  "Generalized Additive Mixed Model (GAMM)",
-  "yₜ = β₀ + Σⱼ fⱼ(xⱼ,ₜ) + Zb + εₜ,  
-   b ~ N(0, Ψ), εₜ ~ N(0, Σ)",
-  "Extends GAM by including **random effects** (b) and/or **structured residual variance**.  
-  Implemented via `mgcv::gamm()` with variance structures such as  
-  `weights = varIdent(~1 | group)` to allow heteroskedasticity across groups (e.g., local seasons).",
-
-  # Row 3 — Applied model
-  "Applied Electricity Demand Model",
-  "Dₜ = t + tsinₜ + tcosₜ + Season + s(Tₓ,Season) + s(Tᵧ,Season) +  
-   s(Solar,Season) + ti(Tₓ,Tᵧ) + ti(Tₓ,Solar) + ti(Tᵧ,Solar) +  
-   s(doy) + dow + is_holiday + Dₜ₋₁ + Dₜ₋₇",
-  "Forecasting model for **daily electricity demand** in Victoria. Includes:  
-  • Long-term trend (t, tsin, tcos)  
-  • Seasonal factor (Season)  
-  • Weather smooths (s(Tₓ, Season), s(Tᵧ, Season), s(Solar, Season))  
-  • Interaction smooths (ti() terms)  
-  • Calendar and holiday effects  
-  • Autoregressive lags (Dₜ₋₁, Dₜ₋₇)  
-  • In GAMM, residual variance differs by weather regime: `weights = varIdent(~1 | local_season)`."
-)
-
-# Build gt table
-model_table_gt <- model_table %>%
-  gt() %>%
-  tab_header(
-    title = md("**Comparison of GAM, GAMM, and Applied Model Specifications**")
-  ) %>%
-  cols_width(
-    `Model Type` ~ px(180),
-    `General Formula` ~ px(320),
-    `Description / Components` ~ px(520)
-  ) %>%
-  tab_options(
-    table.font.names = "Arial",
-    table.font.size = 12,
-    data_row.padding = px(6),
-    heading.align = "center"
-  ) %>%
-  cols_label(
-    `Model Type` = md("**Model Type**"),
-    `General Formula` = md("**General Formula**"),
-    `Description / Components` = md("**Description / Components**")
-  )
-
-model_table_gt
-
-```
-
 ## Model Training and Validation
 
-The modeling process employed a Generalized Additive Mixed Model (GAMM) framework trained on data from 1 July 2019 to 30 June 2024, with REML used to select optimal smoothing parameters. This approach captures nonlinear relationships between demand and weather while accounting for autocorrelation and regime-specific effects through random structures.
+The modeling process employed a Generalized Additive Mixed Model (GAMM) framework trained on data from 1 July 2019 to 30 June 2024, with REML used to select optimal smoothing parameters. 
 
 The training workflow followed standard best practices:
 
@@ -1761,15 +1714,21 @@ The training workflow followed standard best practices:
 
 -   Residual and diagnostic checks — confirming no systematic bias or autocorrelation.
 
-Model performance was evaluated using three key metrics: Root Mean Square Error (RMSE), Mean Absolute Percentage Error (MAPE), and the Coefficient of Determination (R²).
+Model performance was evaluated using three key metrics: Root Mean Square Error (RMSE), Mean Absolute Percentage Error (MAPE), and the Coefficient of Determination (R²) — alongside the Ljung–Box test for residual independence.  
 
--   RMSE measures the square root of the average squared deviation between predicted and actual demand, providing a comprehensive indicator of overall forecast accuracy while penalizing larger errors more heavily.
+-   RMSE measures the square root of the average squared deviation between predicted and actual demand, providing a indicator of overall forecast accuracy while penalizing larger errors more heavily.
 
 -   MAPE expresses the mean absolute deviation as a percentage of observed demand, enabling intuitive interpretation of forecast precision across different demand levels (e.g., a MAPE of 3% indicates that forecasts are typically within 3% of actual demand).
 
 -   R² quantifies the proportion of variability in actual demand explained by the model, with higher values signifying stronger predictive and explanatory capability.
 
+-   Ljung–Box test assesses whether residuals exhibit significant autocorrelation at specified lags. A non-significant result (p > 0.05) suggests that the residuals behave as white noise, indicating that the model has adequately captured temporal dependence in the data.
+
 Together, these metrics offer a clear and balanced assessment of model performance, reflecting both the accuracy of the forecasts and the model’s ability to capture underlying weather–demand relationships
+
+# Results {#sec-results}
+
+In this section, we present the key results of the forecasting model, focusing on how well it performed and what insights can be drawn. Both quantitative accuracy metrics and qualitative consistency with domain expectations are examined to evaluate model reliability and interpretability.
 
 ## Comparison with different verions {#sec-model-comparison}
 
@@ -1816,7 +1775,9 @@ training_data <- dat_lag|>filter(date >= as.Date("2019-07-01"),
 testing_data  <- dat_lag |>  filter(date >= as.Date("2024-07-01"),date <= as.Date("2025-06-30"))
 ```
 
-To systematically evaluate model performance, the workflow runs the full modeling pipeline — fitting each GAM formulation, evaluating training and testing metrics (R², RMSE, MAPE), checking residuals (Ljung–Box and ACF/PACF), and comparing across the nine configurations that combine seasonal grouping and temperature construction.
+To systematically evaluate model performance, the workflow runs the full modeling pipeline — fitting each GAM formulation, evaluating training and testing metrics (R², RMSE, MAPE), checking residuals (Ljung–Box test) and comparing across the nine configurations that combine seasonal grouping and temperature construction.
+
+As illustrated in @tbl-model-performance, the Local Season formulation offers the best trade-off between predictive accuracy and statistical adequacy, supporting its adoption for subsequent model refinement and forecasting.
 
 ```{r tbl-model-performance }
 #| tbl-cap: "Model Performance (TEST) — with Ljung–Box Pass/Fail Summary"
@@ -2231,7 +2192,8 @@ p_rmse_lb <- ggplot(mm_for_plot, aes(x = reorder(Model, RMSE), y = RMSE, fill = 
 # ---- 10) Pick best compliant model -----------------------------------------
 best_compliant <- model_metrics_test %>%
   filter(`LB14 pass?` == "Yes", `LB28 pass?` == "Yes") %>%
-  arrange(RMSE) %>% slice(1)
+  arrange(RMSE) %>%
+  slice(1)
 
 best_compliant_model <- best_compliant$Model
 
@@ -2239,32 +2201,27 @@ best_compliant_model <- best_compliant$Model
 # OUTPUTS (only these are printed/shown)
 # ============================================================
 mm_for_plot %>%
-  select(Model, R2, RMSE, MAPE, `LB14 pass?`, `LB28 pass?`, PassesLB) %>%
+  select(Model, R2, RMSE, MAPE, `LB14 pass?`, `LB28 pass?`) %>%   # removed PassesLB
   kable(
-    col.names = c("Model", "R²", "RMSE", "MAPE (%)", "LB14 Pass?", "LB28 Pass?", "Overall"),
+    col.names = c("Model", "R²", "RMSE", "MAPE (%)", "LB14 Pass?", "LB28 Pass?"),
     digits = 3,
-    align = c("l", "c", "c", "c", "c", "c", "c")
+    align = c("l", "c", "c", "c", "c", "c")
   ) %>%
   kable_styling(full_width = FALSE, position = "center", font_size = 11) %>%
   row_spec(which(mm_for_plot$PassesLB == "Pass"), bold = TRUE, background = "#e0f2f1") %>%
   row_spec(which(mm_for_plot$PassesLB == "Fail"), color = "grey40")
-# 5) Winner (invisible assignment; show succinct message)
+
+# Winner message
 message(sprintf("Best compliant model by RMSE & Ljung–Box: %s", best_compliant_model))
 
 ```
 
-As illustrated in @tbl-model-performance, the Local Season formulation offers the best trade-off between predictive accuracy and statistical adequacy, supporting its adoption for subsequent model refinement and forecasting. This finding reinforces the insights from @sec-feature-engineering, where local-season clustering was introduced as a regime-aware enhancement to traditional seasonal modeling.
 
 ## Model Evaluation — Best Performing Model (Tmean_pca/Trange_pca with Local Season)
 
 To assess the adequacy of the best-performing model (local-season GAM with Tmean_pca and Trange_pca), we examined residual diagnostics to verify model assumptions and check for remaining bias, heteroskedasticity, or autocorrelation.
 
 @fig-gam-check shows the standard diagnostic plots from `gam.check()`. The residuals are approximately normally distributed with no significant skew or pattern, and the fitted values align closely with observed demand, indicating a strong model fit.
-
-However, as shown in @fig-resid-by-season, a mild winter bias remains — residuals during cold and cloudy regimes tend to slightly underestimate demand. This pattern reflects the model’s difficulty in fully capturing winter conditions, where solar generation is minimal and heating demand can rise sharply. Nonetheless, the residuals remain centered around zero across other seasons, confirming that the local-season framework mitigates most seasonal heterogeneity.
-
-Overall, the diagnostics support that the chosen GAMM structure is statistically adequate, with independent residuals, limited heteroskedasticity, and physically interpretable behavior across weather regimes.
-
 ```{r fig-gam-check}
 #| label: fig-gam-check
 #| fig-cap: "Model diagnostics for the best GAM (local-season with Tmean_pca/Trange_pca): QQ plot, residual distribution, and fitted vs observed demand."
@@ -2279,7 +2236,7 @@ p_bestmodel <- appraise(m_E)
 p_bestmodel                                  
 
 ```
-
+However, as shown in @fig-resid-by-season, a slight winter bias remains—residuals during cold and cloudy regimes tend to underestimate demand. This pattern suggests that the model struggles to fully capture winter conditions, when solar generation is minimal and heating demand increases sharply. It also exhibits the greatest interannual variability in recent years, reflecting changing weather and behavioural dynamics. Nonetheless, residuals remain centered around zero across other seasons, confirming that the local-season framework effectively mitigates most seasonal heterogeneity.
 ```{r fig-resid-by-season}
 #| label: fig-resid-by-season
 #| fig-cap: "Residual distribution by day-of-year (DOY) and local season for the best GAM model (Tmean_pca / Trange_pca). Each facet shows deviations between predicted and observed demand by weather regime, with a slight winter underfit visible."
@@ -2361,17 +2318,11 @@ plot.margin = margin(t = 6, r = 4, b = 2, l = 4)
 
 
 ```
+Overall, the diagnostics support that the chosen GAM structure is statistically adequate, with independent residuals, limited heteroskedasticity, and physically interpretable behavior across weather regimes.
 
 ## Extending to GAMM: Addressing Heteroskedasticity {#sec-gamm-heteroskedasticity}
 
-Residual diagnostics from the GAM model (see @fig-resid-by-season) reveal heteroskedasticity, where residual spread varies systematically across local seasons. Specifically, winter regimes exhibit larger residual variance, while mild or sunny regimes show tighter distributions. This violates the constant-variance assumption of standard GAMs.
-
-To address this, we introduce a Generalized Additive Mixed Model (GAMM) with a group-specific variance structure: `varIdent(~1 | local_season)`.
-
-This allows residual variance to differ by local season, explicitly modeling heteroskedasticity rather than ignoring it. The approach yields more reliable standard errors and smoother residual behavior across conditions. As shown in @fig-gamm-stdresid and @fig-gamm-forecast, the variance-weighted GAMM substantially reduces heteroskedasticity and maintains high predictive accuracy (R² ≈ 0.94, MAPE ≈ 3.28 %). This confirms that the `varIdent(~1 | local_season)` specification effectively stabilizes residual variance while preserving model interpretability and out-of-sample performance.
-
-The varIdent structure models, rather than removes, heteroskedasticity by assigning separate residual variances to each local season. While raw residuals still vary by season, the standardized residuals—scaled by each group’s estimated σ—show consistent spread across predictors, confirming that the GAMM appropriately captures season-dependent variance patterns.
-
+To address heteroskedasticity, we introduce a Generalized Additive Mixed Model (GAMM) with a group-specific variance structure: `varIdent(~1 | local_season)`.
 ```{r cache=TRUE}
 vf <- varIdent(form = ~ 1 | local_season)
 
@@ -2389,6 +2340,28 @@ m_gamm <- gamm(
   weights = vf
 )
 ```
+
+Incorporating a heteroskedastic variance structure stabilizes residuals across seasonal regimes, with variance highest under Cold & Clear and lowest under Mild & Moderate conditions (see @ tbl-variance).This allows residual variance to differ by local season, explicitly modeling heteroskedasticity rather than ignoring it. The approach yields more reliable standard errors and smoother residual behavior across conditions, particularly during extreme weather events.
+
+```{r tbl-variance}
+#| label: tbl-variance
+#| tbl-cap: "Residual variance multipliers by local season (varIdent weights)"
+# ---- 5. Add variance structure summary ----
+vstruct <- m_gamm$lme$modelStruct$varStruct
+var_tbl <- tibble(
+  Local_Season = levels(training_data$local_season),
+  Variance_Multiplier = round(c(1, coef(vstruct)), 2)
+)
+
+# ---- 7. Print variance summary ----
+kable(
+  var_tbl,
+  align = "lc"
+)
+
+```
+
+@fig-gamm-stdresid confirms that the `varIdent(~1 | local_season)` specification effectively stabilizes residual variance while preserving model interpretability and out-of-sample performance.
 
 ```{r fig-gamm-stdresid}
 #| label: fig-gamm-stdresid
@@ -2461,6 +2434,8 @@ plot.margin = margin(t = 4, r = 4, b = 2, l = 4)
 
 ```
 
+Then let's check the overall performance of GAMM model. As shown in @fig-gamm-forecast, the variance-weighted GAMM maintains good fit (R² ≈ 0.94) and high predictive accuracy ( MAPE ≈ 3.28 %). the model exhibits slight underfitting during mid-winter periods—likely due to behavioural or heating-related nonlinearities not fully captured—and occasionally misses short-lived extreme demand spikes.
+
 ```{r fig-gamm-forecast}
 #| label: fig-gamm-forecast
 #| fig-cap: "Out-of-sample performance of the variance-weighted GAMM (2024–2025 test set). Forecasts align closely with observed demand, confirming robust generalization."
@@ -2513,7 +2488,34 @@ p_forecast
 
 ```
 
-Keeping the training window fixed (2019–2024) and recursively forecasting over 2024–2025, the variance-weighted GAMM demonstrated consistently strong accuracy across multiple forecast horizons. Short-term forecasts were highly reliable, achieving R² = 0.78–0.93 and MAPE between 1.68% and 2.58% for 3–14-day horizons. Even for the 30-day horizon, performance remained solid (R² = 0.87, MAPE = 2.51%), while the year-ahead forecast retained a high explanatory power (R² = 0.94) with only moderate error (MAPE = 3.28%). Overall, accuracy declined gradually with longer horizons—consistent with the expected accumulation of forecast uncertainty—confirming the model’s robustness for short- to medium-term operational forecasting within a one-year horizon, as summarized in @tbl-horizon-results.
+Nevertheless, residual diagnostics indicate no major departures from model assumptions: standardized residuals show no discernible structure and approximate homoskedastic, zero-mean behaviour (@fig-gamm-stdresid), and formal checks including QQ, ACF, and response-vs-fitted plots reveal no significant distributional or independence violations (@fig-gamm-check).
+
+```{r fig-gamm-check}
+#| label: fig-gamm-check
+#| fig-cap: "GAMM diagnostic plots generated via `gratia::appraise()`. The QQ-plot, residuals, and response–fitted checks confirm approximate normality and homoscedasticity."
+#| fig-width: 10
+#| fig-height: 6
+#| out-width: 100%
+#| fig-align: center
+#| cache: true
+#| warning: false
+#| message: false
+#| echo: false
+
+# Generate diagnostic plots for the GAM component of the GAMM
+
+pgamm <- appraise(m_gamm$gam, method = "simulate")
+
+# Explicitly print to render in Quarto
+
+print(pgamm)
+ 
+```
+
+Then, multi-horizon forecast accuracy was assessed using a recursive forecasting approach, in which the training window (2019–2024) was kept fixed while forecasts were generated sequentially over the 2024–2025 period. The variance-weighted GAMM exhibited consistently strong performance across multiple forecast horizons.
+
+Short-term forecasts were highly reliable, achieving R² = 0.78–0.93 and MAPE = 1.68–2.58% for 3–14-day horizons. Even at the 30-day horizon, performance remained robust (R² = 0.87, MAPE = 2.51%), while the year-ahead forecast retained high explanatory power (R² = 0.94) with only moderate error (MAPE = 3.28%).
+Overall, forecast accuracy declined with increasing horizon length, though not always consistently across all periods. This irregularity likely reflects the limited validation window, which constrains the robustness of longer-horizon evaluation. Nevertheless, as summarized in @tbl-horizon-results, the model demonstrates strong reliability for short- to medium-term operational forecasting within approximately a one-year horizon.
 
 ```{r tbl-horizon-results, warning= FALSE}
 #| label: tbl-horizon-results
@@ -2600,9 +2602,11 @@ knitr::kable(results, caption = NULL)
 
 ```
 
-## Forecasts after 2025-07-01 with GAMM
+## Out-of-sample forecasts
 
-To evaluate the model’s short-term generalization ability beyond the training period, the variance-weighted GAMM (introduced in @sec-gamm-heteroskedasticity) was applied to forecast daily electricity demand for July 2025. As shown in @fig-gamm-forecast-2025, the model continues to track observed demand closely beyond the training horizon, with forecast errors remaining low (RMSE ≈ 5.5 GWh, MAPE ≈ 3.14%). This demonstrates that the model generalizes well under new weather and photovoltaic conditions, capturing the overall demand dynamics and weekly variations effectively. Slight underfitting during colder winter days suggests some residual sensitivity to extreme low-temperature events, but overall, the GAMM framework remains robust for short-term operational forecasting.
+To evaluate short-term generalization beyond the training period, the variance-weighted GAMM was applied to forecast daily electricity demand for July 2025. As shown in @fig-gamm-forecast-2025, the model continued to track observed demand closely beyond the training horizon, with forecast errors remaining low (RMSE ≈ 5.5 GWh, MAPE ≈ 3.14%)—slightly higher than the in-sample one-month-ahead accuracy, as expected.
+
+These results indicate that the model generalizes well under new weather conditions, effectively capturing overall demand dynamics and weekly variation patterns. Minor underprediction during colder winter days suggests residual sensitivity to extreme low-temperature events, but overall the GAMM framework demonstrates strong robustness for short-term operational forecasting.
 
 ```{r fig-gamm-forecast-2025}
 #| label: fig-gamm-forecast-2025
@@ -2619,65 +2623,11 @@ knitr::include_graphics("picture/final_panel.png")
 
 ```
 
-# Results {#sec-results}
-
-In this section, we present the key results of the forecasting model, focusing on how well it performed and what insights can be drawn. Both quantitative accuracy metrics and qualitative consistency with domain expectations are examined to evaluate model reliability and interpretability.
-
-## Overall Model Performance
-
-This section summarizes the forecasting performance, robustness, and diagnostic assessment of the proposed GAMM. Model evaluation focuses on overall fit, multi-horizon predictive stability, and residual behaviour to ensure statistical validity and practical reliability across diverse weather regimes.
-
-The GAMM demonstrates high overall performance and calibration (see @fig-gamm-forecast), accurately capturing both the level and shape of daily demand across weather conditions with minimal residual dispersion around the one-to-one line. Across forecasting horizons, accuracy remains stable with only mild degradation as the horizon extends; summary metrics and dispersion bands are reported in @tbl-horizon-results, while out-of-sample forecasts for 2025 further confirm robustness under varying climate and system conditions (@fig-gamm-forecast-2025).
-
-Despite these strengths, the model exhibits slight underfitting during mid-winter periods—likely due to behavioural or heating-related nonlinearities not fully captured—and occasionally misses short-lived extreme demand spikes during abrupt heatwaves or cold snaps. Nevertheless, residual diagnostics indicate no major departures from model assumptions: standardized residuals show no discernible structure and approximate homoskedastic, zero-mean behaviour (@fig-gamm-stdresid), and formal checks including QQ, ACF, and response-vs-fitted plots reveal no significant distributional or independence violations (@fig-gamm-check).
-
-```{r fig-gamm-check}
-#| label: fig-gamm-check
-#| fig-cap: "GAMM diagnostic plots generated via `gratia::appraise()`. The QQ-plot, residuals, and response–fitted checks confirm approximate normality and homoscedasticity."
-#| fig-width: 10
-#| fig-height: 6
-#| out-width: 100%
-#| fig-align: center
-#| cache: true
-#| warning: false
-#| message: false
-#| echo: false
-
-# Generate diagnostic plots for the GAM component of the GAMM
-
-pgamm <- appraise(m_gamm$gam, method = "simulate")
-
-# Explicitly print to render in Quarto
-
-print(pgamm)
- 
-```
-
 ## Interpretation of Model Components {#sec-Interpretation-of-Model-Components}
 
 Overall, the fitted GAMM effectively decomposes Victoria’s electricity demand into interpretable and physically consistent components. Temperature remains the dominant driver, exhibiting a clear asymmetry between heating- and cooling-related regimes ( @fig-gamm-all-1). Solar exposure exerts a consistently negative effect on demand ( @fig-gamm-all-3), reflecting the increasing influence of rooftop PV generation in reducing daytime grid load. The diurnal temperature range and solar–temperature interaction terms indicate that clear-sky conditions substantially moderate demand ( @fig-gamm-all-2), while the cyclic calendar smooth captures the expected winter and summer peaks ( @fig-gamm-all-4).
 
-Incorporating a heteroskedastic variance structure stabilizes residuals across seasonal regimes, with variance highest under Cold & Clear and lowest under Mild & Moderate conditions (see @tbl-variance). This enhances model fit and provides more reliable uncertainty quantification, particularly during extreme weather events.
-
 A concise summary of significant model components and their implications is presented in @tbl-gamm-grouped-interpretation, while the full list of model terms and significance results is provided in Appendix A (@tbl-gamm-terms). Collectively, these results demonstrate that the GAMM captures realistic, weather-dependent, and behavioral load dynamics with strong alignment to domain knowledge. For completeness, all smooth components are displayed in Appendix B ( @fig-gamm-all-1 to @fig-gamm-all-4).
-
-```{r tbl-variance}
-#| label: tbl-variance
-#| tbl-cap: "Residual variance multipliers by local season (varIdent weights)"
-# ---- 5. Add variance structure summary ----
-vstruct <- m_gamm$lme$modelStruct$varStruct
-var_tbl <- tibble(
-  Local_Season = levels(training_data$local_season),
-  Variance_Multiplier = round(c(1, coef(vstruct)), 2)
-)
-
-# ---- 7. Print variance summary ----
-kable(
-  var_tbl,
-  align = "lc"
-)
-
-```
 
 ```{r tbl-gamm-grouped-interpretation}
 #| label: tbl-gamm-grouped-interpretation
@@ -2784,15 +2734,15 @@ gamm_interp %>%
 
 The results of this project demonstrate the effectiveness of a comprehensive, weather-dependent modeling approach for electricity load forecasting. Here we discuss the implications of these findings, the contributions and novelty of the work, and its limitations and potential improvements.
 
-## Meeting the objectives:
+## Meeting the objectives
 
-Our primary objective was to enhance load forecast accuracy by incorporating detailed, weather-dependent information.(see in @sec-objectives) The GAMM model achieved this effectively, reducing forecast error to a daily MAPE of around 3.28 %(see in @fig-gamm-forecast), which is well within the industry benchmark range of 3–5% for operational forecasting. This demonstrates that explicitly modeling nonlinear weather–demand relationships and integrating multiple meteorological inputs can yield substantial accuracy gains. The use of PCA to combine data from three stations proved particularly beneficial—it effectively created a unified, noise-reduced “virtual weather station” that captured regional weather dynamics more robustly while mitigating multicollinearity. Similarly, the GMM-based local season clustering enabled the model to adapt to distinct weather regimes, capturing both summer cooling and winter heating responses without forcing a single oversimplified temperature curve. This data-driven seasonal segmentation is relatively novel in load forecasting studies and showed tangible improvements in both model fit and residual structure. While a GAMM without clustering produced a marginally lower RMSE, it failed key diagnostic checks (e.g., residual autocorrelation), indicating that the clustered approach better represented underlying regime-specific behaviors critical for reliable operational forecasting.
+Our primary objective was to forecast electricity load accurately by incorporating detailed, weather-dependent information.(see in @sec-objectives) The GAMM model achieved this effectively, with forecast error to a daily MAPE of around 3.28 %(see in @fig-gamm-forecast), which is well within the industry experts's knowledge of 3–5% for operational forecasting. This demonstrates that explicitly modeling nonlinear weather–demand relationships and integrating multiple meteorological inputs can yield substantial accuracy gains. The use of PCA to combine data from three stations proved particularly beneficial—it effectively created a unified, noise-reduced “virtual weather station” that captured regional weather dynamics more robustly while mitigating multicollinearity. Similarly, the GMM-based local season clustering enabled the model to adapt to distinct weather regimes, capturing both summer cooling and winter heating responses without forcing a single oversimplified temperature curve. This data-driven seasonal segmentation is relatively novel in load forecasting studies and showed tangible improvements in both model fit and residual structure. While a GAMM without clustering produced a marginally lower RMSE, it failed key diagnostic checks (e.g., residual autocorrelation), indicating that the clustered approach better represented underlying regime-specific behaviors critical for reliable operational forecasting.
 
-## Contributions and novelty:
+## Contributions and novelty
 
 From a methodological perspective, this project combined several advanced techniques in a way that, to our knowledge, has not been widely reported in literature for this exact context. While GAMs have been used in load forecasting and are praised for interpretability, our work adds the element of unsupervised clustering to define seasons, and the integration of multi-source weather via PCA. This hybrid approach (mixing statistical learning and machine learning clustering) is one contribution. It required learning and applying diverse skills: data cleaning and merging (large time-series data handling), PCA and multivariate analysis, probabilistic clustering (GMM, including selection of cluster number via BIC), and sophisticated regression modeling (GAMM with `VarIdent` terms). The project thus involved a considerable degree of complexity – beyond a standard coursework exercise – pushing us to gain proficiency in multiple R packages and techniques. We also contributed to the data processing pipeline: for instance, writing functions to automate weather station data extraction and imputation, and creating visualizations (like animated plots of demand vs temperature over time) to communicate findings. These are practical contributions that could be reused in similar analyses or by the host organization (government energy department).
 
-## Practical implications:
+## Practical implications
 
 The resulting model is both accurate and interpretable, making it valuable for short-term operational forecasting and planning. System operators could use it for day-ahead demand forecasts, improving generator commitment efficiency and potentially reducing operational costs.
 
@@ -2800,7 +2750,7 @@ The interpretability of the GAMM provides clear insight into which weather condi
 
 Furthermore, integrating multiple weather stations through PCA highlights the importance of spatially robust weather signals — a practice utilities and market operators could adopt more broadly, or extend with satellite and forecast ensemble data.
 
-## Limitations:
+## Limitations
 
 Despite strong performance, several limitations remain:
 
@@ -2811,7 +2761,7 @@ Despite strong performance, several limitations remain:
 -   Evolving demand patterns: The assumption of stable weather–demand relationships may weaken over time as appliance efficiency, heating technology, and rooftop PV penetration evolve. Regular retraining is essential.
 -   Extrapolation risk: GAMs extrapolate linearly beyond the training range, so forecasts under unprecedented conditions (e.g., record heat or rapid PV uptake) may be unreliable.
 
-## Future work:
+## Future work
 
 Building on this foundation, several extensions are recommended:
 
@@ -2827,9 +2777,9 @@ Building on this foundation, several extensions are recommended:
 
 # Conclusion {#sec-conclusion}
 
-In this project, we developed a comprehensive weather-dependent load forecasting model for Victoria’s daily electricity demand, leveraging modern statistical techniques to integrate multiple data sources. Through Principal Component Analysis (PCA), we combined multi-station weather data into robust regional indicators, and through Gaussian Mixture Model (GMM) clustering, we discovered nuanced local-season regimes that improved the model’s ability to handle seasonal transitions and weather extremes. The use of a Generalized Additive Mixed Model (GAMM) enabled the capture of complex nonlinear dependencies (temperature–demand curves) and allowed for varying variance by regime, yielding a well-calibrated model with near-white-noise residuals (see diagnostics in @fig-gamm-stdresid and @fig-gamm-check).
+In this project, we developed a comprehensive weather-dependent load forecasting model for Victoria’s daily electricity demand, leveraging modern statistical techniques to integrate multiple data sources. Through Principal Component Analysis (PCA), we combined multi-station weather data into robust regional indicators, and through Gaussian Mixture Model (GMM) clustering, we discovered nuanced local-season regimes that improved the model’s ability to handle seasonal transitions and weather extremes. The use of a Generalized Additive Mixed Model (GAMM) enabled the capture of complex nonlinear dependencies (temperature–demand curves) and allowed for different variance by regime, yielding a well-calibrated model with near-white-noise residuals.
 
-The model achieved strong predictive performance — with MAPE ≈ 3.28% and R² ≈ 0.94 on out-of-sample data — and effectively anticipated demand peaks and troughs in a period marked by high weather volatility and increasing rooftop solar PV penetration (see @fig-gamm-forecast and @fig-gamm-forecast-2025). The inclusion of solar exposure as a predictor was particularly impactful, quantifying the reduction in grid demand from distributed generation — a crucial factor in modern energy systems. The interpretability of the GAMM provided actionable insights: for example, the estimated temperature–demand curves and solar effects revealed how much additional demand arises per degree drop on cold days and how much solar exposure offsets demand on clear summer days. These insights have practical implications for system operations (e.g., triggering demand response during heatwaves) and energy policy (e.g., quantifying the benefit of efficiency measures in winter heating).
+The model achieved strong predictive performance and effectively anticipated demand peaks and troughs in a period marked by high weather volatility and increasing rooftop solar PV penetration. The inclusion of solar exposure as a predictor was particularly impactful, quantifying the reduction in grid demand from distributed generation — a crucial factor in modern energy systems. The interpretability of the GAMM provided actionable insights: for example, the estimated temperature–demand curves and solar effects revealed how much additional demand arises per degree drop on cold days and how much solar exposure offsets demand on clear summer days. These insights have practical implications for system operations (e.g., triggering demand response during heatwaves) and energy policy (e.g., quantifying the benefit of efficiency measures in winter heating).
 
 In summary, this study demonstrates a successful synthesis of data-driven modelling and domain knowledge in short-term load forecasting. By unifying regional weather data, objectively defining local-season clusters, and employing a flexible nonlinear model structure, we achieved both high accuracy and interpretability. These attributes make the approach practical and trustworthy for planners and policymakers who require not only reliable forecasts but also a clear understanding of demand drivers. Moving forward, adopting such methodologies can enhance grid resilience, support renewable integration, and ensure reliable power supply amid increasing weather variability and evolving consumption patterns.
 
