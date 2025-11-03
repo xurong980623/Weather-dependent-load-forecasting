@@ -1,0 +1,64 @@
+/* Compact Reveal.js theme override */
+.reveal {
+  font-size: 26px;
+  line-height: 1.25;
+  padding: 0.4em 1.4em;
+}
+
+.reveal h1, .reveal h2, .reveal h3 {
+  font-weight: 600;
+  color: #1a3b6f; /* Monash blue */
+}
+
+.reveal section {
+  padding: 0.5em 0.8em;
+}
+
+.reveal img {
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.reveal table {
+  font-size: 0.8em;
+}
+
+.reveal pre code {
+  font-size: 0.8em;
+}
+
+.reveal p, .reveal li {
+  margin-bottom: 0.2em;
+}
+
+.reveal strong {
+  color: #0d47a1;
+}
+/* ----------------- LOGO BAR ----------------- */
+#brand-logos {
+  position: absolute;
+  top: 0px;
+  right: 0px;
+  display: flex;
+  align-items: center;
+  gap: 0px;           /* spacing between logos */
+  z-index: 2000;
+}
+
+/* --- Default (Monash) logo size --- */
+#brand-logos img[alt="Monash University"] {
+  height: 80px;        /* balanced size */
+  object-fit: contain;
+}
+
+/* --- Make SEC logo bigger --- */
+#brand-logos img[alt="SEC Victoria"] {
+  height: 135px;        /* larger to offset whitespace */
+  object-fit: contain;
+}
+
+/* Optional: slightly smaller on narrow screens */
+@media (max-width: 900px) {
+  #brand-logos img[alt="Monash University"] { height: 40px; }
+  #brand-logos img[alt="SEC Victoria"] { height: 55px; }
+}

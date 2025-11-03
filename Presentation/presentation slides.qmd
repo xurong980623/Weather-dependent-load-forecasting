@@ -1,0 +1,435 @@
+---
+title: "Weather-Dependent Electricity Load Forecasting (Short-Term)"
+subtitle: "A Data-Driven Local Season Approach using GAMM"
+author: "Rong Xu"
+institute: |
+  <div style="font-size:1.1em; font-weight:600; margin-top:0.5em;">
+  Monash University | State Electricity Commission (SEC) Victoria
+  </div>
+format:
+  revealjs:
+    theme: simple
+    slide-number: true
+    transition: fade
+    incremental: false
+    width: 1280
+    height: 720
+    css: styles.css
+    footer: "Monash University | SEC Victoria"
+resources:
+  - picture/monash_logo.png
+  - picture/sec_logo.png
+include-in-header: logos.html
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+
+## Background & Motivation
+
+:::: {.columns}
+
+::: {.column width="52%" style="font-size:0.9em; line-height:1.55em;"}
+
+::: {.columns}
+- The **Victorian electricity market** is transforming rapidly — driven by:  
+  - Ambitious **decarbonisation targets**.  
+  - Growth in **renewable alternatives** (rooftop PV, wind, hydro) is reshaping electricity demand profiles.
+  
+- Rising **weather sensitivity** in demand, requiring more adaptive, weather-dependent forecasting.
+
+- For **SEC** and other gentailers, accurate *short-term demand forecasts* are critical for:
+  - **Generation scheduling** and **reserve management**.  
+  - Handling **renewable intermittency** and **price volatility**.  
+:::
+
+> <span style="white-space: nowrap;"><b>Goal:</b> build a <i>robust, interpretable, and flexible model</i> for Victoria’s evolving load.</span>
+
+:::
+
+::: {.column width="48%" style="text-align:center;"}
+![](picture/vic_solar_pv_installs.png){width=120% fig-align="center"}
+
+<div style="font-size:0.82em; margin-top:0.5rem; color:#2B2B2B;">
+<b>Figure:</b> <span style="color:#004B8D;">Rooftop PV Installations in Victoria (FY2014–FY2025)</span><br>
+<i>Rapid post-2018 growth driven by the Solar Homes Program.</i>
+</div>
+:::
+
+
+::::
+
+
+## Data Sources & Pre-processing
+
+:::: {.columns}
+
+::: {.column width="50%" style="font-size:0.95em;"}
+
+### <span style="color:#004B8D;">🔹 Data Sources</span>
+- **AEMO Scheduled Demand:** half-hourly (2013–2025)  
+  - Net grid demand (excludes rooftop PV & non-scheduled generation).  
+- **BoM Weather Data (VIC, daily):**  
+  - Variables: `Tmax`, `Tmin`, `Solar exposure`  
+  - Stations: Melbourne, Ballarat, Morwell  
+- **PV Capacity & Installations:** *Clean Energy Regulator*  
+  - Postcode-level monthly PV capacity (2011–2025)  
+  - Aggregated to state-level monthly capacity (MW)
+
+:::
+::: {.column width="50%" style="font-size:0.85em;"}
+
+### 🔹 Data Preparation
+- Aggregate **half-hourly demand → daily mean (MW)**  
+  Aligns with **daily weather drivers** for 1–365 day forecasts.  
+- Apply **PCA** to merge multi-station weather into unified VIC-level factors:  
+  `tmax_pca`, `tmin_pca`, `solar_pca`  
+- Derive interpretable metrics to avoid collinearity:  
+  `Tmean = (tmax_pca + tmin_pca)/2`,  
+  `Trange = tmax_pca – tmin_pca`
+
+:::
+:::: 
+
+## Weather–Demand Nonlinearities
+
+- **Temperature–demand** is **nonlinear** (**U-shaped patterns**) and seasonally asymmetric.  
+
+- **Solar–demand** relationship is more **variable and complex**, with stronger interactions and higher volatility.
+
+::: {.callout-note appearance="minimal" style="margin-top:0.6rem;"}
+**Takeaway:** **Intertwined solar–temperature effects**, shaped by **PV saturation** and **seasonal asymmetry**, now drive more dynamic and variable demand patterns across the year.
+:::
+
+:::: {.columns}
+
+::: {.column width="50%" style="text-align:center;"}
+![](picture/p_demand_tmax.png){width=140% style="margin-bottom:0.4rem;"}
+<div style="font-size:0.9em;"><b>Tmax vs Demand</b></div>
+:::
+
+::: {.column width="50%" style="text-align:center;"}
+![](picture/p_demand_solar.png){width=140% style="margin-bottom:0.4rem;"}
+<div style="font-size:0.9em;"><b>Solar vs Demand</b></div>
+:::
+
+::::
+
+
+## Structural Shift
+
+:::: {.columns}
+
+::: {.column width="50%" style="text-align:center;"}
+
+<!-- ── Plot 1: Structural Break ── -->
+![](picture/pv_capacity_vs_demand_trend_with_smooth.png){width=120%}
+<div style="font-size:0.7em; color:#004B8D; text-align:left; margin-top:0.4rem;">
+<b>Structural Break (2019)</b><br>
+Overall grid demand <b>declines</b> while <b>intra-season variability</b> widens after the PV surge.
+</div>
+::: {.callout-note appearance="minimal" style="font-size:1.1em; text-align:center;"}
+**Takeaway** :Cut at **2019** and adopt **weather-driven “local seasons”** to capture the post-PV shift and seasonal asymmetry.
+:::
+:::
+
+::: {.column width="50%" style="text-align:center;"}
+<!-- ── Plot 2: Seasonal Divergence ── -->
+![](picture/pv_capacity_vs_demand_by_season_calendar.png){width=120%}
+
+<div style="font-size:0.7em; color:#004B8D; text-align:left; margin-top:0.4rem;">
+<b>Seasonal Divergence</b><br>
+Fixed calendar seasons <b>miss true weather regimes</b> — PV suppresses summer/spring load but winter demand still rises.
+</div>
+:::
+
+:::: 
+
+
+## Local Seasons via GMM (Soft Clustering)
+
+:::: {.columns}
+
+::: {.column width="35%"  style="font-size:0.8em;"}
+
+### 🔹 Approach
+- Apply **Gaussian Mixture Model (GMM)** on  
+  *(tmax_pca, tmin_pca, solar_pca)* to learn **latent weather regimes** (“local seasons”).  
+- **Probabilistic overlap** handles transitions between regimes.  
+- Captures nuanced **climate–demand asymmetries** and flexible seasonal transitions.  
+
+✅ Data-driven seasonal boundaries  
+✅ Better alignment with temperature–solar dynamics  
+:::
+
+::: {.column width="65%" style="text-align:center;"}
+
+![](picture/heatmap_panel.png){width=130% fig-align="center"}
+
+:::
+<div style="text-align:center; font-size:0.8em; margin-top:0.4rem;">
+<b>Local-Season Clusters — Weather Profiles</b>
+</div>
+
+<div style="font-size:0.8em;">
+| **Cluster** | **Tmax (°C)** | **Tmin (°C)** | **Solar (MJ/m²)** | **Interpretation**                                 | **Suggested Label**                         |
+| :---------: | :-----------: | :-----------: | :---------------: | :----------------------------------------------------------| :-------------------------- |
+|    **1**    |      13.0     |      6.1      |        7.1        | Cool days, low solar — likely cloudy winter/autumn      | 🌥 **Cold & Cloudy**       |
+|    **2**    |      20.5     |      11.4     |        20.2       | Mild temps, high solar — likely early summer/spring             | ☀️ **Warm & Bright**       |
+|    **3**    |      26.9     |      12.0     |        28.3       | Hot and very sunny — likely peak summer conditions              | 🔥 **Hot & Very Sunny**       |
+|    **4**    |      26.5     |      11.0     |        18.1       | Hot but lower solar — likely cloudy summer                  | 🌡 **Hot & Partly Cloudy** |
+|    **5**    |      15.5     |      3.1      |        10.1       | Cold days, clear sky — likely sunny winter                | ❄️ **Cold & Sunny**          |
+|    **6**    |      17.5     |      9.7      |        10.9       | Mild days, moderate solar — likely autumn transition      | 🍂 **Mild & Transitional** |
+
+</div>
+::::
+
+
+## From Linear to Dynamic — GAM/GAMM 
+
+<!-- ─────────────── MODEL EVOLUTION ─────────────── -->
+<div style="text-align:center; margin-bottom:0.8rem;">
+  <span style="font-weight:600; color:#004B8D; font-size:1.1em;">Model Evolution</span><br>
+  <span style="font-size:1.3em; color:#2B6CB0;">GLM ➜ GAM ➜ GAMM</span><br>
+  <span style="font-size:0.9em; color:#555;">Linear → Nonlinear → Dynamic</span>
+</div>
+
+
+| **Model** | **Full Name** | **Concept** | **Enhancement** |
+|:-|:--|:------|:---|
+| **GLM** | *Generalized Linear Model* | Uses **linear effects** and assumes **independent errors** | Simple, interpretable baseline |
+| **GAM** | *Generalized Additive Model* | Extends GLM with **smooth nonlinear functions f(x)** and **interactions ti()** | Captures nonlinear weather–demand effects |
+| **GAMM** | *Generalized Additive Mixed Model* | Extends GAM by adding **random effects**, **autocorrelation**, and **season-specific variance** | Models dynamic structure and heteroskedasticity |
+
+
+💡 *GAM Bridges GLM’s simplicity and GAMM’s realism — from* **linear → nonlinear → dynamic** *forecasting.*
+
+
+## GAM Build 
+
+:::: {.columns}
+
+::: {.column width="48%" style="font-size:0.8em;"}
+
+### 🧭 Data Split
+
+| **Stage** | **Period** | **Purpose** |
+|:--|:------|:-------|
+| **Training** | 2019-07-01 → 2024-06-30 | Learn post-PV, weather-driven relationships |
+| **Testing**  | 2024-07-01 → 2025-06-30 | Validate 1-year ahead across all seasons |
+
+✅ **Why 2019?** Rooftop PV surge → structural shift in grid demand.  
+Full-year test ensures **seasonal generalisation** and model robustness.
+---
+### ⚙️ Feature Engineering
+
+| **Feature Group** | **Key Variables / Purpose** |
+|:----|:----------|
+| **Weather Drivers** | `Tmean_pca`, `Trange_pca`, `Solar_pca` → unified VIC-level weather |
+| **Temporal Dynamics** | `Demand_lag1`, `Demand_lag7` → short-term and weekly persistence |
+| **Trend & Cyclicity** | `t`, `t_sin`, `t_cos`, `doy` → long-term trend + annual cycle |
+| **Seasonal Regimes** | `local_season` → GMM-based weather clusters |
+| **Calendar Effects** | `dow`, `is_holiday`, `month`, `season` |
+:::
+
+::: {.column width="52%" style="font-size:0.95em;"}
+
+### 🧮 GAM Formulation (Core Model)
+
+```r
+m_gam <- mgcv::bam(
+  demand ~ t + t_sin + t_cos +
+    s(Tmean_pca,  by = local_season) +
+    s(Trange_pca, by = local_season) +
+    s(solar_pca,  by = local_season) +
+    ti(Tmean_pca, Trange_pca) +
+    ti(Tmean_pca, solar_pca) +
+    ti(Trange_pca, solar_pca) +
+    s(doy, bs = "cc") +
+    dow + local_season + is_holiday +
+    demand_lag1 + demand_lag7,
+  data = training_data,
+  method = "fREML", discrete = TRUE
+)
+```
+<div style="margin-top:1rem; background:#F5F9FF; border-left:5px solid #2B6CB0; padding:0.8rem 1.2rem; border-radius:6px; font-size:0.85em;">
+✅ <b>Conclusion:</b>  
+The <b>GAM framework</b> captures nuanced and dynamic <b>weather–demand interactions</b>, learning subtle seasonal and temperature effects that traditional linear models miss.  It delivers <b>robust, interpretable, and adaptive forecasts</b> for Victoria’s evolving energy system.
+</div>
+
+:::
+
+::::
+
+## Versions Compared and model performance
+
+### Model Performance (TEST) — Ljung–Box
+<span style="font-size:0.85em; color:#555;">
+**Groupings tested:** Season • Local Season • Month  |  **Weather:** Tmax/Tmin • Tmean/Trange
+</span>
+
+| **Model** | **R²** | **RMSE** | **MAPE** | **LB14** | **LB28** |
+|:----------------------------|:------:|:--------:|:--------:|:------:|:------:|
+| Tmax/Tmin (**season**) | 0.938 | 4669 | 3.17 | ❌ | ❌ |
+| Tmean/Trange (**season**) | 0.937 | 4707 | 3.17 | ❌ | ❌ |
+| Tmax/Tmin (**month**) | 0.936 | 4731 | 3.13 | ❌ | ✅ |
+| Tmean_pca/Trange_pca (**month**) | 0.924 | 5175 | 3.44 | ❌ | ❌ |
+| Tmax/Tmin (**local**) | 0.936 | 4756 | 3.25 | ✅ | ✅ |
+|<span style="white-space:nowrap; border:2px solid #2B6CB0; border-radius:6px; padding:2px 6px; background:#E8F1FA;"><b>Tmean_pca/Trange_pca (local)</b></span> | **0.936** | **4743** | **3.25** | ✅ | ✅ |
+
+:::: {.columns}
+
+::: {.column width="50%" style="font-size:0.8em;"}
+### 🎯 Evaluation Criteria
+📈 **R²** — goodness of fit  
+🎯 **RMSE / MAPE** — forecast accuracy  
+🔍 **LB14 / LB28** — residual independence  
+:::
+
+::: {.column width="50%" style="font-size:0.8em;"}
+### 🔹 Trade-offs
+• **Season models:** highest R², but autocorrelation  
+• **Local-season models:** best balance ✅  
+• **Monthly models:** weakest fit overall  
+:::
+
+::::
+
+
+::: {.callout-note appearance="minimal" style="font-size:1.2em; text-align:center;"}
+💡 **Takeaway:**  
+**Local-season GAM (Tmean_pca/Trange_pca)** delivers the **best operational balance** -- high accuracy **with** independent residuals.
+:::
+
+
+## Best GAM Model & GAMM Extension
+
+:::: {.columns}
+::: {.column width="50%"}
+![](picture/p_local_gam .png){width=100% fig-align="center"}
+:::
+::: {.column width="50%"}
+![](picture/final_resid_plot.png){width=100% fig-align="center"}
+:::
+::::
+
+:::: {.columns}
+
+::: {.column width="55%" style="font-size:0.80em;"}
+### ⚠️ Challenge — Seasonal Bias & Heteroskedasticity
+- From the forecast plot: **missed peaks and troughs**, with a **systematic winter underestimation**.
+- **Residual variance differs by local season**, leading to **unequal spread** in residuals (heteroskedasticity).
+:::
+
+::: {.column width="45%" style="font-size:0.8em;"}
+
+### 🔧 Solution — Weighted GAMM  
+Add a **variance structure** via `nlme::varIdent`  
+to stabilize residual variance across seasons:
+
+```r
+m_gamm <- mgcv::gamm(
+  demand ~ ...,
+  data = training_data,
+  weights = nlme::varIdent(~ 1 | local_season)
+)
+```
+:::
+::::
+
+## GAMM Forecast and Diagnostics 
+
+:::: {.columns}
+
+::: {.column width="55%" style="text-align:center;font-size:0.75em;"}
+
+**🔹 GAMM Forecast**  
+![](picture/gamm_forecast_diagnostics_lb.png){width=115% fig-align="center" style="margin-bottom:0.5rem;"}
+
+<div style="font-size:0.85em; width:80%; margin:auto; margin-top:0.4rem;">
+| **Metric** | **GAM (Local Season)** | **GAMM** | **Δ Improvement** |
+|:--|--:|--:|--:|
+| **RMSE (MW)** | 4 743 | **4 682** | −61 MW (↓ 1.3 %) |
+| **MAPE (%)** | 3.25 | **3.21** | −0.04 pp (↓ 1.2 %) |
+| **R²** | 0.936 | **0.943** | +0.007 (↑ 0.7 %) |
+| **Ljung–Box (14, 28)** | ✅ Pass | ✅ Pass   |  -   |
+</div>
+
+✅ **GAMM enhances both accuracy and residual independence**  
+:::
+
+::: {.column width="45%" style="text-align:center; font-size:0.75em;"}
+
+**🔹 GAMM Standardized Residuals**  
+![](picture/final_stdresid_plot.png){width=95% fig-align="center" style="margin-bottom:0.6rem;"}
+
+✅ **Weighted variance structure** improves **stability across local seasons**
+
+<div style="margin-top:0.8rem; background:#F5F9FF; border-left:5px solid #2B6CB0; padding:0.9rem 1.2rem; border-radius:6px; font-size:1.0em;"> 
+✅ <b>In short:</b> GAMM extends GAM by capturing <b>temporal dependence</b>, and <b>heteroskedasticity</b> .</div> 
+:::
+
+::::
+
+## 🔹 Forecast Accuracy and Evaluation
+
+:::: {.columns}
+
+::: {.column width="68%" style="text-align:left;"}
+
+### 📊 Forecast Accuracy by Horizon
+| Horizon | R² | RMSE (MW) | MAPE (%) |
+|:--:|:--:|--:|--:|
+| **3-day** | 0.91 | 2 602 | 1.7 |
+| **7-day** | 0.95 | 4 061 | 2.5 |
+| **30-day** | 0.88 | 4 520 | 2.5 |
+| **365-day** | 0.94 | 4 682 | 3.2 |
+
+✅ Accuracy remains **strong and stable** across all forecast horizons.
+<div style="background-color:#F5F9FF; border-left:4px solid #2B6CB0; padding:0.9rem 1rem; border-radius:6px; margin-top:0.8rem; font-size:0.8em;"> <b>Interpretation:</b> GAMM maintains **consistent performance** among different horizons within one year, accurately tracking **seasonal patterns** and **weather-driven dynamics**. Minor peak underestimation suggests potential for improvement via **season-specific smooths** or **hybrid AR–GAMM frameworks**. </div>
+
+
+:::
+
+::: {.column width="58%" style="text-align:center;"}
+![](picture/final_panel.png){width=105% style="margin-top:0.5rem;"}
+
+<div style="font-size:0.9em; margin-top:0.4rem;">
+<b>GAMM Forecast vs Actual (1-Month Window)</b><br>
+<i>Captures winter cycles; minor underestimation of peaks</i>
+</div>
+:::
+
+:::: 
+
+## ✅ Conclusion & Potential Future Improvements
+
+:::: {.columns}
+
+::: {.column width="52%" style="font-size:0.8em; line-height:1.55em;"}
+
+### <span style="color:#004B8D;">🔹 Conclusion</span>
+- The **GAMM framework** bridges **interpretability** and **realism**, effectively capturing nonlinear, weather-driven demand dynamics.  
+- **Local-season clustering (GMM)** flexibly models seasonal patterns beyond fixed calendar boundaries.  
+- Achieved **R² ≈ 0.94** and **MAPE ≈ 3%**, maintaining **strong accuracy** across short- to medium-term horizons.  
+- Provides **transparent insights** for **operational forecasting** and **policy planning** within SEC Victoria’s renewable transition.  
+
+:::
+
+::: {.column width="48%" style="font-size:0.8em; line-height:1.55em;"}
+
+### <span style="color:#004B8D;">🔹 Potential Future Improvements</span>
+- **Rolling TSCV & Cut-off Tuning:** test robustness across evolving regimes.  
+- **Dynamic Variance Modeling:** capture uncertainty during extreme weather.  
+- **Real-time integration using forecasted weather data.**  
+- **Granular Expansion:** to **zonal / feeder** levels and **half-hourly intraday** analysis.  
+- **Additional Drivers:** include **price**, **EV charging**, and **wind generation** to improve realism.
+
+
+:::
+::: {.callout-note appearance="minimal" style="font-size:1.15em; text-align:center;"}
+**💡Next Step** :Develop a **high-frequency, variance-aware hybrid GAMM** capturing both **spatial and temporal** demand nuances.
+:::
+::::

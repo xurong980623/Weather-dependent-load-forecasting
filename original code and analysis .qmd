@@ -1,0 +1,3073 @@
+---
+title: "Weather-Dependent Load Forecasting Report"
+format:
+  html:
+    code-fold: true
+---
+
+```{r}
+knitr::opts_chunk$set(
+  echo = FALSE, 
+  message = FALSE, 
+  warning =  FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(lubridate)
+library(here)
+library(tidyselect)
+library(readxl)
+library(plotly)
+library(purrr)
+library(gganimate)
+library(gifski)
+library(energy)
+library(mgcv)
+library(tsibble)
+library(fpp3)
+library(fy)
+library(GGally)
+library(car)
+library(ggrepel)
+library(forecast) 
+library(mclust)
+library(imputeTS)
+library(zoo)
+library(forcats)
+library(ragg)
+library(scales)
+library(mclust)
+library(tsibble)
+library(fabletools)
+library(feasts)
+library(fpp3)
+library(broom)
+library(forcats)
+library(latex2exp)
+library(gridExtra)
+library(yardstick)
+library(knitr)
+library(nlme)
+library(kableExtra)
+library(fmsb)
+library(RColorBrewer)
+library(missRanger)  # for imputation
+library(ggpubr)
+library(strucchange)
+library(patchwork)
+
+```
+
+# 1. Introduction
+
+Electricity demand is highly sensitive to weather conditions such as temperature, solar radiation, and seasonal variation. Accurate load forecasting is crucial for operational planning, market bidding, and ensuring system reliability. Traditional time series methods capture temporal structure, while modern regression and machine learning methods allow explicit integration of weather drivers. This report investigates forecasting approaches that combine time series structure with weather-dependent explanatory variables, focusing on Melbourne and regional Victoria as case studies.
+
+# 2. Data and Preprocessing
+
+## 2.1 Data Sources
+
+- Demand Data: Half-hourly and daily load from AEMO records (2013–2025).
+
+- Weather Data: Bureau of Meteorology (BoM) daily maximum/minimum temperatures, solar exposure, and derived heating/cooling degree days (HDD, CDD).
+
+- Calendar Effects: Day of week (dow), holidays, seasonal dummies, local seasons via clustering.
+
+```{r echo= FALSE,cache= TRUE}
+# Data setup (relative path)
+root_dir <- here()
+input_dir <- here("Input Data")
+price_dir <- here("Input Data","Price Data")
+demand_dir <- here("Input Data","Demand Data")
+gen_dir <- here("Input Data","Generation Data")
+weather_dir <- here("Input Data","Weather Data")
+
+# Weather:read all stations(Max/Min/Solar)
+COL_TMAX <- "Maximum temperature (Degree C)"
+COL_TMIN <- "Minimum temperature (Degree C)"
+COL_SOLAR <- "Daily global solar exposure (MJ/m*m)"
+
+read_bom_value <- function(path,exact_col,out_name){
+  df <- read_csv(path,show_col_types = FALSE)
+  
+if (!(exact_col %in% names(df))){
+  stop(sprintf(
+    "Column '%s' not find in %s.\nAvailable columns:\n%s",
+    exact_col,basename(path),paste(names(df),collapse = ", ")
+  ))
+}
+
+df |>
+  mutate(date = make_date(Year, Month, Day))|>
+  rename(!!out_name := .data[[exact_col]])|>
+  select(date, all_of(out_name))
+}
+load_weather_station <- function(station_dir) {
+  max_file <- list.files(station_dir,pattern = "IDCJAC0010_.*_Data\\.csv$",recursive = TRUE,full.names = TRUE)
+  min_file <- list.files(station_dir,pattern = "IDCJAC0011_.*_Data\\.csv$",recursive = TRUE,full.names = TRUE)
+  sol_file <- list.files(station_dir,pattern = "IDCJAC0016_.*_Data\\.csv$",recursive = TRUE,full.names = TRUE)
+if (length(max_file) != 1 ||length(min_file) != 1 || length(sol_file) != 1){
+  stop(paste0("Expected exactly one max/min/solar in:",station_dir))
+} 
+  
+tmax <- read_bom_value(max_file, COL_TMAX, "Tmax")
+tmin <- read_bom_value(min_file, COL_TMIN, "Tmin")
+solar <- read_bom_value(sol_file, COL_SOLAR, "Solar")
+
+out <- tmax |>
+  full_join(tmin, by = "date")|>
+  full_join(solar, by = "date")|>
+  mutate(station = basename(station_dir))|>
+  relocate(station, .after = date)|>
+  arrange(date)
+
+out
+}
+ 
+load_all_weather <- function(weather_root = weather_dir){
+  stations <- list.dirs(weather_root,full.names = TRUE, recursive = FALSE)
+  if (length(stations) == 0) stop("No station folders found in Weather Data.")
+  bind_rows(lapply(stations, load_weather_station))|>
+    arrange(station, date)
+}
+weather_all <- load_all_weather() |> filter(date>="2013-07-01")
+visdat::vis_dat(weather_all)
+# Impute missing data
+set.seed(123)
+weather_all <- missRanger(weather_all, pmm.k = 3, seed = 123)
+#average across stations
+weather_avg <- weather_all |>
+  group_by(date)|>
+  summarise(Tmax = mean(Tmax, na.rm = TRUE),
+            Tmin = mean(Tmin, na.rm = TRUE),
+            Solar = mean(Solar, na.rm = TRUE),
+            .groups = "drop")
+# read demand data
+demand <- read_csv(file.path(demand_dir, "VIC_ScheduledDemand_2013-2025.csv"))|>
+  rename(demand = `VIC1 Scheduled Demand`)|>
+  mutate(datetime = dmy_hm(`Time-ending`))|>
+  select(datetime, demand)
+# aggregate demand data to daily basis
+demand_daily <- demand |>
+  mutate(date = as_date(datetime))|>
+  group_by(date)|>
+  summarise(demand = sum(demand)*0.5)
+# average across stations and combine weather with demand
+weather_avg <- weather_all |>
+  group_by(date)|>
+  summarise(Tmax = mean(Tmax, na.rm = TRUE),
+            Tmin = mean(Tmin, na.rm = TRUE),
+            Solar = mean(Solar, na.rm = TRUE),
+            .groups = "drop")
+full_daily_core <- demand_daily |> left_join(weather_avg, by = "date") |>
+  arrange(date)|>
+  mutate(
+    year = factor(year(date)),
+    finyear = date2fy(date),
+    month = factor(month(date)),
+    week = isoweek(date),
+    dow = factor(wday(date, label = T,abbr = T)),
+    is_weekend = factor(ifelse(dow %in% c("Sat","Sun"),1,0)),
+    doy = yday(date),
+    season = factor(case_when(
+      month %in% c(12,1,2) ~ "Summer",
+      month %in% c(3,4,5) ~ "Autumn",
+      month %in% c(6,7,8) ~ "Winter",
+      month %in% c(9,10,11) ~ "Spring"
+    ))
+    #season = case_when(
+      #month(date) %in% c(11,12,1,2,3) ~ "summer",   # Nov–Mar
+      #month(date) %in% c(6,7,8)       ~ "winter",
+      #TRUE                             ~ "shoulder"
+    #) |> factor(levels = c("summer","winter","shoulder"))
+  )|>
+  filter(!is.na(demand),!is.na(Tmax),!is.na(Tmin),!is.na(Solar))|>
+  slice(-1)
+# by station
+full_daily_by_station <- demand_daily|>
+  left_join(weather_all, by = "date")|>
+  arrange(date,station)|>
+  mutate(
+    year = factor(year(date)),
+    finyear = date2fy(date),
+    month = factor(month(date)),
+    week = isoweek(date),
+    dow = factor(wday(date, label = T,abbr = T)),
+    is_weekend = factor(ifelse(dow %in% c("Sat","Sun"),1,0)),
+    doy = yday(date),
+    season = factor(case_when(
+      month %in% c(12,1,2) ~ "Summer",
+      month %in% c(3,4,5) ~ "Autumn",
+      month %in% c(6,7,8) ~ "Winter",
+      month %in% c(9,10,11) ~ "Spring"
+    ))
+    ##AEMO-style season definitions (summer/winter; season-year)
+    #season = case_when(
+      #month(date) %in% c(11,12,1,2,3) ~ "summer",   # Nov–Mar
+      #month(date) %in% c(6,7,8)       ~ "winter",
+      #TRUE                             ~ "shoulder"
+    #) |> factor(levels = c("summer","winter","shoulder"))
+  )|>
+  filter(!is.na(demand),!is.na(Tmax),!is.na(Tmin),!is.na(Solar))
+# create a dataset combine all three stations and mean
+full_daily_core_labeled<- full_daily_core|>
+  mutate(station = "Station Mean")|>
+  relocate(station, .after = 3)
+full_combined <- bind_rows(full_daily_core_labeled,full_daily_by_station)
+
+full_daily_by_station_wide <- full_daily_by_station |>
+  pivot_wider(
+    id_cols = c(date, demand),   # keep date & demand as identifiers
+    names_from = station,        # spread stations to columns
+    values_from = c(Tmax, Tmin, Solar), 
+    names_glue = "{.value}_{station}" # e.g., Tmax_Ballarat, Solar_Melbourne
+  ) |>
+  mutate(finyear = date2fy(date))
+
+```
+
+## 2.2 Feature Engineering
+
+- Tmax/Tmin/Solar PCA:
+Principal Component Analysis (PCA) was applied to maximum/minimum temperature and solar exposure from multiple stations (Melbourne, Morwell, Ballarat). The first principal component (tmax_pca, tmin_pca, solar_pca) was retained to capture the dominant regional climate signal while removing multicollinearity among stations.
+
+- HDD/CDD:
+Heating and Cooling Degree Days were calculated using AEMO’s Victorian thresholds — 16.5 °C for HDD and 18 °C for CDD — to quantify temperature-driven heating and cooling loads.
+
+- Tmean_pca / Trange_pca:
+Daily mean temperature (Tmean_pca) and temperature range (Trange_pca = Tmax − Tmin) were derived to capture both absolute thermal conditions and diurnal variability. These metrics reflect different physical drivers of demand — Tmean_pca relates to overall heating/cooling load, while Trange_pca captures day–night amplitude and thermal comfort effects.
+
+- Financial Year (finyear):
+Data were structured by financial years (July → June), aligning with AEMO and ABS energy reporting cycles. This avoids splitting summer (Dec–Feb) across two years and ensures seasonal comparability for long-term demand and PV adoption trends.
+
+- Local Seasons (GMM Clusters):
+Gaussian Mixture Models (GMM) were applied to daily Tmax, Tmin, and Solar PCA scores to classify days into six distinct “local season” regimes. This data-driven approach provides finer granularity than traditional four-season classification, better reflecting transitional and extreme weather states that influence electricity demand.
+```{r}
+# Create feature summary table
+features_tbl <- tribble(
+  ~Category, ~Variable, ~Description,
+  
+  # Temporal
+  "Temporal Features", 
+  "`date`, `doy`, `dow`, `year`, `month`, `season`, `is_holiday`", 
+  "Calendar-based controls for daily, weekly, and seasonal effects. `doy` (day-of-year) captures annual cycle; `dow` (day-of-week) captures weekly pattern; `is_holiday` flags public holidays.",
+  
+  # PCA-based
+  "Temperature & Solar PCA", 
+  "`tmax_pca`, `tmin_pca`, `solar_pca`", 
+  "First principal component (PC1) of Tmax, Tmin, and solar exposure across multiple stations — removes collinearity and summarizes regional climate signals.",
+  
+  "Temperature & Solar PCA", 
+  "`tmax_pca`, `tmin_pca`, `solar_pca`", 
+  "Standardized (mean = 0, sd = 1) versions used in smooth terms.",
+  
+  # Thermal indicators
+  "Derived Thermal Indicators", 
+  "`Tmean_pca_pca`, `Trange_pca_pca`", 
+  "Mean and range of daily temperature; capture overall warmth and diurnal variability.",
+  
+  "Derived Thermal Indicators", 
+  "`Tmean_pca`, `Trange_pca`", 
+  "Standardized mean and range for consistent scaling.",
+  
+  "Derived Thermal Indicators", 
+  "`HDD`, `CDD`", 
+  "Heating Degree Days = max(0, 16.5 − Tmean_pca); Cooling Degree Days = max(0, Tmean_pca − 18). Based on AEMO VIC definitions.",
+  
+  "Derived Thermal Indicators", 
+  "`HDD`, `CDD`", 
+  "Standardized HDD/CDD for comparability.",
+  
+  # Time trend & cyclic terms
+  "Time Trend & Cyclic Terms", 
+  "`t`", 
+  "Continuous numeric index of days since start — models long-term demand trends (e.g., population growth or PV adoption).",
+  
+  "Time Trend & Cyclic Terms", 
+  "`sin_t`, `cos_t`", 
+  "Annual Fourier pair (period = 365.25 days) capturing smooth repeating seasonal cycles.",
+  
+  "Time Trend & Cyclic Terms", 
+  "`t_sin`, `t_cos`", 
+  "Interaction of long-term trend with annual cycle — allows evolving seasonal effects over time."
+)
+
+# Display as a formatted table
+features_tbl %>%
+  kable(
+    caption = "Table 1. Summary of Engineered Features",
+    col.names = c("Category", "Variable(s)", "Description / Purpose"),
+    align = c("l", "l", "l"),
+    escape = FALSE
+  ) %>%
+  kable_styling(full_width = FALSE, position = "center", font_size = 11)
+
+```
+
+# 3. EDA
+## 3.1 What do the relationships between demand and weather variables look like?
+
+```{r}
+# Correlation Check: pairwise scatterplot matrix (demand vs weather variables)
+weather_demand_subset <- full_daily_core |>
+  select(demand, Tmax, Tmin, Solar)
+ggscatmat(weather_demand_subset,alpha = 0.3)+
+  theme_minimal()
+pairs(weather_demand_subset)
+# Multicollinearity Check : Variance Inflation Factor(VIF)
+lm_check <- lm(demand ~ Tmax +Tmin + Solar,data = full_daily_core)
+vif(lm_check)
+```
+
+Correlation checks show Tmax and Tmin are highly correlated (ρ ≈ 0.7), and Tmax and Solar are moderately correlated (ρ ≈ 0.69). 
+
+correlations are consistent with intuition: warm days are also sunny, Tmax and Tmin move together, solar reduces demand (PV offset). For the GAM, treat Tmax & Tmin carefully — either collapse into fewer variables or model their interaction. 
+
+VIF > 5 (or >10) is a red flag.Here is no multicollinearity.
+
+## 3.2 How do those relationships vary between weather locations?
+
+We compared using the mean weather across Ballarat, Melbourne, and Morwell against treating the three stations separately. Correlations and VIF checks showed high overlap between stations, and the mean provided a cleaner regional climate signal aligned with system-wide demand. Since separate stations did not materially improve accuracy, we adopted the station mean for parsimony, while noting that Melbourne showed slightly stronger demand sensitivity. 
+```{r}
+# keep the three stations separate
+full_daily_by_station <- demand_daily|>
+  left_join(weather_all, by = "date")|>
+  arrange(date,station)|>
+  mutate(
+    year = factor(year(date)),
+    finyear = date2fy(date),
+    month = factor(month(date)),
+    week = isoweek(date),
+    dow = factor(wday(date, label = T,abbr = T)),
+    is_weekend = factor(ifelse(dow %in% c("Sat","Sun"),1,0)),
+    doy = yday(date),
+    season = factor(case_when(
+      month %in% c(12,1,2) ~ "Summer",
+      month %in% c(3,4,5) ~ "Autumn",
+      month %in% c(6,7,8) ~ "Winter",
+      month %in% c(9,10,11) ~ "Spring"
+    ))
+  )|>
+  filter(!is.na(demand),!is.na(Tmax),!is.na(Tmin),!is.na(Solar))|>
+  slice(-c(1,2,3))
+# Correlation Check for the three weather stations
+# Ballarat
+weather_demand_subset_Ballarat <- full_daily_by_station |>
+  select(demand, Tmax, Tmin, Solar,station)|>
+  filter(station == "Ballarat Aerodrome")
+ggscatmat(weather_demand_subset_Ballarat,alpha = 0.3)+
+  theme_minimal()
+# Melbourne (Olympic Park) 2013-2025
+weather_demand_subset_Melbourne <- full_daily_by_station |>
+  select(demand, Tmax, Tmin, Solar,station)|>
+  filter(station == "Melbourne (Olympic Park) 2013-2025")
+ggscatmat(weather_demand_subset_Melbourne,alpha = 0.3)+
+  theme_minimal()
+# Morwell (Latrobe Valley Airport)
+weather_demand_subset_Morwell <- full_daily_by_station |>
+  select(demand, Tmax, Tmin, Solar,station)|>
+  filter(station == "Morwell (Latrobe Valley Airport)")
+ggscatmat(weather_demand_subset_Morwell,alpha = 0.3)+
+  theme_minimal()
+# Multicollinearity Check--Variance Inflation Factor(VIF)
+# Ballarat
+lm_check_Ballarat <- lm(demand ~ Tmax +Tmin + Solar,data = weather_demand_subset_Ballarat)
+vif(lm_check_Ballarat)
+
+# Melbourne    
+lm_check_Melbourne <- lm(demand ~ Tmax +Tmin + Solar,data = weather_demand_subset_Melbourne)
+vif(lm_check_Melbourne)
+
+# Morwell
+lm_check_Morwell <- lm(demand ~ Tmax +Tmin + Solar,data = weather_demand_subset_Morwell)
+vif(lm_check_Morwell)
+
+# Overlay plots with same y-axis scale
+ggplot(na.omit(full_combined),aes(date,demand))+
+  geom_line()+
+  geom_line(aes(y = Tmax*2000),colour = "tomato")+
+  scale_y_continuous(sec.axis = sec_axis(~./2000, name = "Tmax (degree C)"))+
+  facet_wrap(~station,ncol = 1,scales = "free_y")+
+  labs(x = "Date", y= "Demand (MW)", colour = "")+
+  theme_minimal()
+# V-shape scatter plots per station 
+ggplot(na.omit(full_combined),aes(Tmax,demand,colour = station))+
+  geom_point(alpha = 0.3)+
+  geom_smooth(method = "loess",se = FALSE)+
+  theme_minimal()
+
+ggplot(na.omit(full_combined),aes(Tmin,demand,colour = station))+
+  geom_point(alpha = 0.3)+
+  geom_smooth(method = "loess",se = FALSE)+
+  theme_minimal()
+
+ggplot(na.omit(full_combined),aes(Solar,demand,colour = station))+
+  geom_point(alpha = 0.3)+
+  geom_smooth(method = "loess",se = FALSE)+
+  theme_minimal()
+```
+
+### Give weight to the three weather stations
+Principal Component Analysis (PCA) is applied to the weather variables (e.g., temperature, solar exposure) from these three stations. These variables are highly correlated, which can cause multicollinearity problems in regression or GAM models. PCA solves this by standardizing each variable and transforming them into a small set of uncorrelated “climate factors.” The first principal component typically captures the dominant regional weather pattern—representing the overall temperature or solar conditions across Victoria—while subsequent components describe localized deviations. This compression not only reduces noise and dimensionality but also helps identify which stations contribute most through their loadings, improving model interpretability and stability.
+```{r}
+weather_mat <- full_daily_by_station_wide |>
+  select(starts_with("Tmax"), starts_with("Tmin"), starts_with("Solar")) |>
+  scale() |>
+  na.omit() |>
+  janitor::clean_names() # standardize
+
+pca_res <- prcomp(weather_mat, center = TRUE, scale. = TRUE)
+
+summary(pca_res)       # variance explained by PCs
+pca_res$rotation       # loadings
+screeplot(pca_res,type="lines")
+
+tmax_vars <- grep("^tmax", rownames(pca_res$rotation), value = TRUE)
+
+tmax_loadings <- pca_res$rotation[tmax_vars, "PC1"]
+
+# normalize so weights sum to 1
+tmax_weights <- tmax_loadings / sum(tmax_loadings)
+tmax_weights
+
+tmin_vars <- grep("^tmin", rownames(pca_res$rotation), value = TRUE)
+
+tmin_loadings <- pca_res$rotation[tmin_vars, "PC1"]
+
+# normalize so weights sum to 1
+tmin_weights <- tmin_loadings / sum(tmin_loadings)
+tmin_weights
+
+solar_vars <- grep("^solar", rownames(pca_res$rotation), value = TRUE)
+
+solar_loadings <- pca_res$rotation[solar_vars, "PC1"]
+
+# normalize so weights sum to 1
+solar_weights <- solar_loadings / sum(solar_loadings)
+solar_weights
+
+# --- Apply weights to build PCA-based composite variables ---
+full_daily_pca <- full_daily_by_station_wide |>
+  mutate(
+    # Weighted averages across stations
+    tmax_pca  = `Tmax_Ballarat Aerodrome` * tmax_weights["tmax_ballarat_aerodrome"] +
+                `Tmax_Melbourne (Olympic Park) 2013-2025` * tmax_weights["tmax_melbourne_olympic_park_2013_2025"] +
+                `Tmax_Morwell (Latrobe Valley Airport)`   * tmax_weights["tmax_morwell_latrobe_valley_airport"],
+
+    tmin_pca  = `Tmin_Ballarat Aerodrome`  * tmin_weights["tmin_ballarat_aerodrome"] +
+                `Tmin_Melbourne (Olympic Park) 2013-2025`* tmin_weights["tmin_melbourne_olympic_park_2013_2025"] +
+                `Tmin_Morwell (Latrobe Valley Airport)`   * tmin_weights["tmin_morwell_latrobe_valley_airport"],
+
+    solar_pca = `Solar_Ballarat Aerodrome`  * solar_weights["solar_ballarat_aerodrome"] +
+                `Solar_Melbourne (Olympic Park) 2013-2025` * solar_weights["solar_melbourne_olympic_park_2013_2025"] +
+                `Solar_Morwell (Latrobe Valley Airport)`   * solar_weights["solar_morwell_latrobe_valley_airport"]
+  )|>
+  mutate(
+    year = factor(year(date)),
+    finyear = date2fy(date),
+    month = factor(month(date)),
+    week = isoweek(date),
+    dow = factor(wday(date, label = T,abbr = T)),
+    is_weekend = factor(ifelse(dow %in% c("Sat","Sun"),1,0)),
+    doy = yday(date),
+    season = factor(case_when(
+      month %in% c(12,1,2) ~ "Summer",
+      month %in% c(3,4,5) ~ "Autumn",
+      month %in% c(6,7,8) ~ "Winter",
+      month %in% c(9,10,11) ~ "Spring"
+    ))
+    ##AEMO-style season definitions (summer/winter; season-year)
+    #season = case_when(
+      #month(date) %in% c(11,12,1,2,3) ~ "summer",   # Nov–Mar
+      #month(date) %in% c(6,7,8)       ~ "winter",
+      #TRUE                             ~ "shoulder"
+    #) |> factor(levels = c("summer","winter","shoulder"))
+  )
+```
+PCA loadings = implicit weights.The aim is to create a weighted average of the 3 stations, we typically use PC1 loadings as weights, because PC1 captures the largest shared variation.Extracted PC1 loadings and normalized them into weights for Tmax, Tmin, and Solar across 3 stations.
+
+We collapse per-station variables into one PCA-weighted index for each weather feature. That way, we can use tmax_pca, tmin_pca, and solar_pca directly in GAM or regression models.
+
+## 3.3 How do those relationships vary over time?(pca level) 
+
+### demand vs Tmax
+
+```{r}
+# plot the U-shape demand-temperature curve
+full_daily_pca <- full_daily_pca |>
+  filter(date >= "2013-07-01",date<="2025-06-30")
+p <- ggplot(full_daily_pca,aes(x = tmax_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "steelblue")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  labs(
+    x = "Maximum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    title = "Relationship between Max Temperature and Electricity Demand"
+  )+
+  theme_minimal()
+
+ggplotly(p)
+
+p_tmax_demand <- ggplot(full_daily_pca,aes(x = tmax_pca, y = demand, colour = factor(finyear)))+
+  geom_smooth(method = "loess",se = FALSE)+
+  labs(
+    x = "Maximum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    colour = "Year",
+    title = "Relationship : Tmax vs Electricity Demand"
+  )+
+  theme_minimal()
+
+p1 <- ggplot(full_daily_pca,aes(x = tmax_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "steelblue")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  labs(
+    x = "Maximum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    title = "Relationship between Max Temperature and Electricity Demand",
+    subtitle = "Year: {closest_state}"
+  )+
+  theme_minimal()+
+  theme(
+    plot.subtitle = element_text(size = 20,face = "bold", colour = "blue")
+  )
+
+#anim <- p1+
+  #transition_states(year,transition_length = 2,state_length = 5 )+
+  #enter_fade()+exit_fade()+
+  #ease_aes("quadratic-in-out")
+#animate(anim,width = 900,height = 600,res = 120,fps = 20,duration = 14,renderer = gifski_renderer())
+#anim_save("picture/Tmax_demand_by_year.gif")
+
+# spilt the plot by season
+p_dt_season <- ggplot(na.omit(full_daily_pca),aes(x = tmax_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "steelblue")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  facet_wrap(~season)+
+  labs(
+    x = "Maximum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    title = "Tmax vs Electricity Demand by Season"
+  )+
+  theme_minimal()
+
+p_demand_tmax <- p_tmax_demand + p_dt_season
+
+# Save in different formats
+ggsave(
+  filename = "picture/p_demand_tmax.png",
+  plot = p_demand_tmax,
+  width = 12,
+  height = 7,
+  dpi = 320,
+  bg = "white"
+)
+```
+
+Across years, demand vs Tmax forms a clear U-shape—lowest near 20–25 °C and rising on both cold and hot days. Seasonal facets confirm asymmetric drivers: winter amplifies the cold limb (heating), summer the hot limb (cooling), while spring and autumn stay flatter. Year-coloured curves show intensifying sensitivity on both sides, with the cold side steepening more and the hot side also increasing in recent years due to air-conditioning. Together, correlation checks, seasonal breakdown, and trend diagnostics support a nonlinear, seasonally structured, time-varying GAM, and justify focusing on recent windows where these effects are most relevant. 
+
+### demand vs Tmin
+
+```{r}
+# plot the U-shape demand-temperature curve
+p <- ggplot(full_daily_pca,aes(x = tmin_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "steelblue")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  labs(
+    x = "Minimum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    title = "Relationship between Min Temperature and Electricity Demand"
+  )+
+  theme_minimal()
+
+ggplotly(p)
+
+p2static <- ggplot(full_daily_pca,aes(x = tmin_pca, y = demand, colour = factor(finyear)))+
+  geom_smooth(method = "loess",se = FALSE)+
+  labs(
+    x = "Minimum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    colour = "Year",
+    title = "Relationship between Min Temperature and Electricity Demand"
+  )+
+  theme_minimal()
+p2static
+
+p2 <- ggplot(full_daily_pca,aes(x = tmin_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "steelblue")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  labs(
+    x = "Minimum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    title = "Relationship between Min Temperature and Electricity Demand",
+    subtitle = "Year: {closest_state}"
+  )+
+  theme_minimal()+
+  theme(
+    plot.subtitle = element_text(size = 20,face = "bold", colour = "blue")
+  )
+#anim <- p2+
+  #transition_states(year,transition_length = 2,state_length = 5 )+
+  #enter_fade()+exit_fade()+
+  #ease_aes("quadratic-in-out")
+#animate(anim,width = 900,height = 600,res = 120,fps = 20,duration = 14,renderer = gifski_renderer())
+#anim_save("picture/Tmin_demand_by_year.gif")
+
+ggplot(na.omit(full_daily_pca),aes(x = tmin_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "steelblue")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  facet_wrap(~season)+
+  labs(
+    x = "Minimum Temperature (degree C)",
+    y = "Electricity Demand (MW)",
+    title = "Relationship between Min Temperature and Electricity Demand"
+  )+
+  theme_minimal()
+```
+
+Electricity demand also responds to minimum temperature, but less strongly than to maximum temperature. The U-shaped pattern is present, with rising demand on cold and warm nights, yet the sensitivity is weaker overall. This suggests that Tmax is the dominant driver of short-term demand fluctuations, while Tmin provides secondary information related to heating load. 
+
+### demand vs Solar exposure
+
+```{r}
+p <- ggplot(full_daily_pca,aes(x = solar_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "darkorange")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  labs(
+    x = "Daily Global Solar Exposure (MJ/m^2)",
+    y = "Electricity Demand (MW)",
+    title = "Relationship between Solar Exposure and Electricity Demand"
+  )+
+  theme_minimal()
+
+ggplotly(p)
+
+p3static <- ggplot(full_daily_pca,aes(x = solar_pca, y = demand, colour = factor(finyear)))+
+  geom_smooth(method = "loess",se = FALSE)+
+  labs(
+    x = "Daily Global Solar Exposure (MJ/m^2)",
+    y = "Electricity Demand (MW)",
+    colour = "Year",
+    title = "Relationship : Solar Exposure vs Electricity Demand"
+  )+
+  theme_minimal()
+
+p3static
+
+p_solar_season <- ggplot(na.omit(full_daily_pca),aes(x = solar_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "darkorange")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  facet_wrap(~season)+
+  labs(
+    x = "Daily Global Solar Exposure (MJ/m^2)",
+    y = "Electricity Demand (MW)",
+    title = "Solar Exposure vs Electricity Demand by season"
+  )+
+  theme_minimal()
+
+p3 <- ggplot(full_daily_pca,aes(x = solar_pca, y = demand))+
+  geom_point(alpha = 0.3, colour = "darkorange")+
+  geom_smooth(method = "loess",colour = "red",se = TRUE)+
+  labs(
+    x = "Daily Global Solar Exposure (MJ/m^2)",
+    y = "Electricity Demand (MW)",
+    title = "Relationship between Solar Exposure and Electricity Demand",
+    subtitle = "Year: {closest_state}"
+  )+
+  theme_minimal()+
+  theme(
+    plot.subtitle = element_text(size = 20,face = "bold", colour = "blue")
+  )
+# 5) Combine into one panel (top: forecast; bottom: ACF | PACF)
+# Combine plots
+p_demand_solar <-  p3static |p_solar_season
+
+# Save in different formats
+ggsave(
+  filename = "picture/p_demand_solar.png",
+  plot = p_demand_solar,
+  width = 12,
+  height = 7,
+  dpi = 320,
+  bg = "white"
+)
+#anim <- p3+
+  #transition_states(year,transition_length = 2,state_length = 5 )+
+  #enter_fade()+exit_fade()+
+  #ease_aes("quadratic-in-out")
+#animate(anim,width = 900,height = 600,res = 120,fps = 20,duration = 14,renderer = gifski_renderer())
+#anim_save("picture/solar_demand_by_year.gif")
+```
+
+Electricity demand shows a weak but evolving relationship with solar exposure. Overall, demand is higher on low-solar days, especially in winter and shoulder seasons, while in summer the curve is almost flat. The cold side is much steeper than the hot side, meaning demand is more sensitive to cloudy, low-radiation days than to high-sun conditions,likely because solar exposure covaries with Tmax, and the cooling load is already captured by temperature. Importantly, this pattern has changed over time: before 2019 demand vs solar was nearly flat, but after 2019 the cold side developed a clear negative slope, reflecting stronger winter/cloudy-day demand sensitivity and the influence of rooftop PV adoption. Taken together, solar exposure is a secondary but increasingly important driver, shaping demand mainly through the cold side in recent years.
+
+In conclusion,electricity demand has shown structural change in its weather sensitivity over time. These changes demonstrate that older data dilute current dynamics, as relationships observed a decade ago no longer reflect present demand behaviour. Focusing on the most recent 6 years provides a dataset that is long enough to capture multiple seasonal cycles and weather extremes, while still being representative of the current demand–weather structure, making it the most relevant basis for forecasting.
+
+### demand over time
+
+```{r}
+ggplot(full_daily_pca,aes(x=date))+
+  geom_line(aes(y=demand,colour="Demand (MW)"))+
+  labs(x = "Date", y= "Demand (MW)", colour = "")+
+  theme_minimal()
+```
+
+Electricity demand is highly seasonal with sharper peaks, but the overall mean level shows a slight downward drift, reinforcing the need to focus on recent 6 years where structural changes are most evident.
+
+### Tmax vs Solar over time
+
+```{r}
+ggplot(full_daily_pca,aes(x=date))+
+  geom_line(aes(y = tmax_pca, colour = "Tmax"))+
+  geom_line(aes(y = solar_pca, colour = "Solar"))+
+  scale_y_continuous(
+    name="Tmax",
+    sec.axis = sec_axis(~ .,  name = "Solar Exposure (MJ/m^2)"))+
+  labs(x = "Date", colour = "")+
+  theme_minimal()
+
+ggplot(full_daily_pca,aes(x=tmax_pca,y=solar_pca))+
+  geom_point(alpha = 0.25)+
+  geom_smooth(method = "gam",formula=y~s(x,bs="cs"),se=TRUE)+
+  facet_wrap(~year)
+  labs(x="Tmax vs Solar (overall)",y="Tmax",
+       title = "Daily Global Solar Exposure(MJ/m^2)")+
+  theme_minimal()
+```
+
+Solar and Tmax link: Tmax is strongly driven by solar energy, making solar exposure a strong predictor of daytime heating. However, at very high solar levels (summer), Tmax tends to level off, likely due to limiting factors such as sea breezes, humidity, and broader weather systems. Link this back to demand sensitivity,Solar mainly influences demand indirectly via Tmax. Because solar exposure drives daytime heating, its effect on demand is largely captured through maximum temperature. As a result, demand–solar curves appear flatter than demand–Tmax curves, with sensitivity emerging mainly on low-solar (cloudy, winter) days when heating demand rises. 
+### Tmin vs Solar over time
+
+```{r}
+ggplot(full_daily_pca,aes(x=date))+
+  geom_line(aes(y = tmin_pca,colour = "Tmin"))+
+  geom_line(aes(y = solar_pca, colour = "Solar"))+
+  scale_y_continuous(
+    name="Tmin",
+    sec.axis = sec_axis(~ .,  name = "Solar Exposure (MJ/m^2)"))+
+  labs(x = "Date", colour = "")+
+  theme_minimal()
+
+ggplot(full_daily_pca,aes(x=tmin_pca,y=solar_pca))+
+  geom_point(alpha = 0.25)+
+  geom_smooth(method = "gam",formula=y~s(x,bs="cs"),se=TRUE)+
+  facet_wrap(~year)
+  labs(x="Tmin",y="Daily Global Solar Exposure(MJ/m^2)",
+       title = "Tmin vs Solar (overall)")+
+  theme_minimal()
+```
+
+
+Tmin–Solar link: Tmin shows a weaker, nonlinear relationship with solar exposure. Since Tmin occurs overnight when solar is zero, it is more tied to cloud cover, humidity, and prior-day weather rather than the day’s solar energy. Tmin variation is mainly controlled by nighttime radiative cooling, air mass, and cloud cover, not direct solar input. 
+### Tmax vs Tmin over time
+
+```{r}
+ggplot(full_daily_pca,aes(x=date))+
+  geom_line(aes(y = tmax_pca, colour = "Tmax"))+
+  geom_line(aes(y = tmin_pca, colour = "Tmin"))+
+  scale_y_continuous(
+    name="Tmax",
+    sec.axis = sec_axis(~ .,  name = "Tmin"))+
+  labs(x = "Date", colour = "")+
+  theme_minimal()
+
+ggplot(full_daily_pca,aes(x=tmax_pca,y=tmin_pca))+
+  geom_point(alpha = 0.25)+
+  geom_smooth(method = "gam",formula=y~s(x,bs="cs"),se=TRUE)+
+  facet_wrap(~year)
+  labs(x="Tmax",y="Tmin",
+       title = "Tmax vs Tmin (overall)")+
+  theme_minimal()
+```
+
+Tmax–Tmin link: Tmax and Tmin are strongly and consistently positively correlated — hotter days usually come with warmer nights. The slope looks stable across years, though the spread of points varies with occasional extreme hot days.
+
+### Weather Interactions
+
+Tmax, Tmin, and solar exposure are closely related meteorological variables, each reflecting different aspects of the weather–demand relationship. Solar exposure is physically associated with daytime heating, so higher solar values often correspond to higher Tmax, though the relationship can saturate at very high solar levels. Tmin, by contrast, shows a weaker and more nonlinear association with solar exposure, as it typically occurs overnight and is influenced more by factors such as cloud cover, humidity, and prior-day conditions. While Tmax and Tmin are themselves strongly correlated, they capture distinct thermal processes—Tmax reflects daytime heating potential, whereas Tmin represents overnight cooling. Together, they provide complementary information about temperature variability relevant to electricity demand.
+
+## 3.4 Analyse longer time frame variables
+
+### Climate indices (SOI, IOD, SAM)
+
+The Southern Oscillation Index (SOI), Indian Ocean Dipole (IOD), and Southern Annular Mode (SAM) are key large-scale climate drivers that influence temperature, solar exposure, and rainfall patterns across Australia. These indices reflect broader ocean–atmosphere interactions that can affect both seasonal averages and interannual variability in weather-related demand patterns.
+
+#### How do the relationships between temp/solar over the years align with annual climate indices?
+Over multi-year timescales, variations in temperature and solar exposure often exhibit co-movements with these climate indices. For instance:
+
+- Positive IOD years are typically associated with clearer skies and higher solar exposure over southern Australia, leading to warmer Tmax and elevated summer demand.
+
+- Negative IOD or La Niña (high SOI) phases tend to bring increased cloudiness and humidity, which can suppress solar exposure and moderate temperature extremes.
+
+- SAM affects the position of the westerly wind belt—positive phases may lead to warmer, drier conditions in southern Australia, while negative phases can bring cooler, cloudier weather.
+
+Although these patterns do not imply direct causation, they provide useful context for understanding year-to-year variability in both daytime heating (Tmax–solar relationships) and overnight cooling (Tmin behaviour).
+#### How do local_season clusters align with climate indices?
+When electricity demand or weather data are grouped using local-season clustering (e.g., via GMM on temperature and solar features), certain clusters may align with dominant climate phases. For example:
+
+- Clusters representing hot–dry seasons may correspond to positive IOD or El Niño periods.
+
+- Clusters showing cool–cloudy conditions may coincide with negative IOD or La Niña events.
+
+- Seasonal transitions captured by SAM variability could explain shifts between these local regimes.
+
+Analysing these alignments helps validate the local-season definitions as climatologically meaningful, rather than purely statistical, and may improve long-term load forecasting by accounting for recurring climate-driven patterns.
+## 3.5 Solar installations
+Use capacity as the stock (what can offset demand) and installations as the flow/behaviour signal. Here’s a clean way to combine both while avoiding collinearity.
+
+### Has demand reduced with increase solar installations?(monthly level)
+```{r}
+# 1) Demand → monthly
+demand_monthly <- demand %>%
+  mutate(
+    datetime = ymd_hms(datetime),
+    date     = as_date(datetime),
+    month    = floor_date(date, "month")
+  ) %>%
+  filter(date >= "2013-07-01")|>
+  group_by(month) %>%
+  summarise(
+    monthly_demand = sum(demand, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2) CER solar capacity (VIC, monthly)
+solar_capacity_vic <- read_csv("Input Data/Sgu-Solar Data/sgu-solar-capacity-2011-to-present-and-totals.csv") %>%
+  filter(
+    (`Small Unit Postcode` >= 3000 & `Small Unit Postcode` <= 3999) |
+    (`Small Unit Postcode` >= 8000 & `Small Unit Postcode` <= 8999)
+  ) %>%
+  pivot_longer(
+    cols = matches("\\d{4} - Rated Power Output In kW"),
+    names_to = "month_str",
+    values_to = "capacity_kw"
+  ) %>%
+  mutate(month = parse_date_time(str_extract(month_str, "\\w+ \\d{4}"), "b Y")) %>%
+  group_by(month) %>%
+  summarise(capacity_kw = sum(capacity_kw, na.rm = TRUE), .groups="drop") %>%
+  arrange(month) %>%
+  mutate(cum_capacity_kw = cumsum(capacity_kw))
+
+# 3) CER solar installs (VIC, monthly)
+solar_installs_vic <- read_csv("Input Data/Sgu-Solar Data/sgu-solar-installations-2011-to-present-and-totals.csv") %>%
+  filter(
+    (`Small Unit Installation Postcode` >= 3000 & `Small Unit Installation Postcode` <= 3999) |
+    (`Small Unit Installation Postcode` >= 8000 & `Small Unit Installation Postcode` <= 8999)
+  ) %>%
+  pivot_longer(
+    cols = matches("\\d{4} - Installation Quantity"),
+    names_to = "month_str",
+    values_to = "installs"
+  ) %>%
+  mutate(month = parse_date_time(str_extract(month_str, "\\w+ \\d{4}"), "b Y")) %>%
+  group_by(month) %>%
+  summarise(installs = sum(installs, na.rm = TRUE), .groups="drop") %>%
+  arrange(month) %>%
+  mutate(cum_installs = cumsum(installs))
+# aggregate it to financial year (FY) level from 2013-07-01 to 2025-06-30
+
+solar_installs_vic_finyear <- solar_installs_vic %>%
+  mutate(finyear = if_else(month(month) >= 7,
+                           year(month) + 1,
+                           year(month))) %>%
+  filter(month >= as.Date("2013-07-01"),
+         month <= as.Date("2025-06-30")) %>%
+  group_by(finyear) %>%
+  summarise(
+    total_installs = sum(installs, na.rm = TRUE),
+    # if you want cumulative up to each FY end:
+    cum_installs_end = max(cum_installs, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(finyear)
+
+p_pv <- ggplot(solar_installs_vic_finyear, aes(x = finyear)) +
+  #  Yearly installs (left axis)
+  geom_col(aes(y = total_installs), fill = "skyblue", alpha = 0.7) +
+  geom_line(aes(y = total_installs), color = "steelblue", linewidth = 1) +
+  geom_point(aes(y = total_installs), color = "steelblue", size = 2) +
+  
+  #  Scales and labels
+  scale_x_continuous(breaks = seq(2014, 2025, 1)) +
+  scale_y_continuous(
+    name = "Total Installations"
+  ) +
+  
+  #  Aesthetic formatting
+  labs(
+    title = "Victorian Solar PV Installations (FY2014–FY2025)",
+    x = "Financial Year"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    panel.grid.minor = element_blank()
+  )
+p_pv
+ggsave("picture/vic_solar_pv_installs.png", p_pv,
+       width = 10, height = 6, dpi = 300, bg = "white")
+```
+The chart shows that solar PV installations in Victoria experienced a clear structural shift beginning in FY2019, marked by a sharp and sustained increase in yearly installations. This change aligns with the launch of the Victorian Solar Homes Program in August 2018, which accelerated the uptake of rooftop solar systems. Although the Victorian Solar Homes Program was introduced in August 2018, its impact materialized with a lag effect—households took time to apply, receive rebates, and complete installations. As a result, the surge in FY2020 marks the true onset of the modern rooftop solar expansion. Therefore, FY2020 (July 1 2019 onwards) is selected as the cut-off point for model development to ensure the forecasting captures the post-policy, high-adoption regime shaped by new incentives, technology costs, and behavioral change.
+### Has the correlation between demand and solar shifted with solar installations
+```{r}
+# --- Merge datasets and assign calendar year + season ----------------------
+
+demand_pv <- demand_monthly %>%
+  left_join(select(solar_capacity_vic, month, capacity_kw), by = "month") %>%
+  left_join(select(solar_installs_vic, month, installs), by = "month") %>%
+  mutate(
+    date = as.Date(month),
+    year = year(date),  # calendar year
+    season = case_when(
+      month(date) %in% c(12, 1, 2) ~ "Summer",
+      month(date) %in% c(3, 4, 5)  ~ "Autumn",
+      month(date) %in% c(6, 7, 8)  ~ "Winter",
+      TRUE                         ~ "Spring"
+    )
+  ) %>%
+  filter(date >= as.Date("2014-01-01"),
+         date <= as.Date("2024-12-31")) %>%
+  mutate(period = ifelse(date < as.Date("2019-01-01"), "Pre-2019", "Post-2019"))
+
+# --- Plot PV Capacity vs Monthly Demand ------------------------------------
+
+pv_demand_cor <- ggplot(demand_pv, aes(capacity_kw / 1000, monthly_demand, colour = period)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +
+  facet_wrap(~ season, nrow = 2) +
+  scale_colour_manual(values = c("grey55", "steelblue")) +
+  labs(
+    title = "PV Capacity vs Demand by Season (2014-2024 Calendar Year) ",
+    subtitle = "Pre- vs Post-2019 (Calendar Year)",
+    x = "PV Capacity (MW)",
+    y = "Monthly Demand (MW)",
+    colour = NULL
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "top")
+
+# --- Save the plot ---------------------------------------------------------
+ggsave(
+  filename = "picture/pv_capacity_vs_demand_by_season_calendar.png",
+  plot = pv_demand_cor,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+```
+
+```{r}
+# --- Monthly Demand vs PV Capacity (Calendar Year) --------------------
+
+p_monthly_trend <- ggplot(demand_pv, aes(x = date)) +
+  # Demand (left axis)
+  geom_line(aes(y = monthly_demand / 1e6, colour = "Demand (GW)"), linewidth = 1.1) +
+  
+  # PV capacity (right axis, scaled)
+  geom_line(aes(y = capacity_kw / 1e3 / 20, colour = "PV Capacity (×20 MW)"),
+            linewidth = 1, linetype = "solid") +
+  
+  # 2019 break line
+  geom_vline(xintercept = as.Date("2019-01-01"), colour = "darkred", linetype = "dotted", linewidth = 1) +
+  annotate("text", x = as.Date("2019-01-01"), y = 8.2,
+           label = "2019 structural break\n(Solar Homes Program)",
+           colour = "darkred", size = 4, hjust = 0, lineheight = 1.1) +
+
+  # Axis scaling
+  scale_y_continuous(
+    name = "Monthly Demand (GW)",
+    sec.axis = sec_axis(~ . * 20, name = "PV Capacity (MW)")
+  ) +
+  
+  # Colors and labels
+  scale_colour_manual(values = c("Demand (GW)" = "#1f77b4",
+                                 "PV Capacity (×20 MW)" = "#e6550d")) +
+  labs(
+    title = "Monthly Demand and PV Capacity in Victoria (2014–2024)",
+    subtitle = "Post-2019 PV growth marks a clear structural change in demand behaviour",
+    x = NULL, y = NULL,
+    colour = NULL
+  ) +
+  
+  # Theme
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 11, colour = "grey30"),
+    panel.grid.minor = element_blank()
+  )
+
+# --- Save the annotated plot -------------------------------------------
+ggsave(
+  filename = "picture/pv_capacity_vs_demand_trend_annotated.png",
+  plot = p_monthly_trend,
+  width = 9,
+  height = 6,
+  dpi = 300
+)
+
+
+
+# --- Monthly Demand vs PV Capacity (Calendar Year) with Trend Lines --------------------
+
+p_monthly_trend <- ggplot(demand_pv, aes(x = date)) +
+  # Demand (left axis)
+  geom_line(aes(y = monthly_demand / 1e6, colour = "Demand (GW)"), linewidth = 1.1) +
+  
+  # PV capacity (right axis, scaled)
+  geom_line(aes(y = capacity_kw / 1e3 / 20, colour = "PV Capacity (×20 MW)"),
+            linewidth = 1, linetype = "solid") +
+  
+  # Add smoothed trend for demand
+  geom_smooth(
+    aes(y = monthly_demand / 1e6, colour = "Demand (Trend)"),
+    method = "loess", span = 0.2, se = FALSE, linewidth = 1.2, linetype = "solid"
+  ) +
+  
+  # Optionally, highlight seasonal cycle (using yearly rolling mean)
+  geom_smooth(
+    aes(y = monthly_demand / 1e6, colour = "Seasonal Cycle"),
+    method = "gam", formula = y ~ s(x, bs = "cs", k = 12),
+    se = FALSE, linewidth = 1, linetype = "dotdash", alpha = 0.8
+  ) +
+
+  # 2019 structural break
+  geom_vline(xintercept = as.Date("2019-01-01"), colour = "darkred", linetype = "dotted", linewidth = 1) +
+  annotate("text", x = as.Date("2019-03-01"), y = 8.2,
+           label = "2019 structural break\n(Solar Homes Program)",
+           colour = "darkred", size = 4, hjust = 0, lineheight = 1.1) +
+
+  # Axis scaling
+  scale_y_continuous(
+    name = "Monthly Demand (GW)",
+    sec.axis = sec_axis(~ . * 20, name = "PV Capacity (x20 MW)")
+  ) +
+
+  # Colours and labels
+  scale_colour_manual(values = c(
+    "Demand (GW)" = "#1f77b4",
+    "PV Capacity (×20 MW)" = "#e6550d",
+    "Demand (Trend)" = "#084594",
+    "Seasonal Cycle" = "#4292c6"
+  )) +
+  
+  labs(
+    title = "Monthly Demand and PV Capacity in Victoria (2014–2024)",
+    subtitle = "Post-2019 PV growth reshaped load patterns — clearer intra-season variance and long-term shift",
+    x = NULL, y = NULL,
+    colour = NULL
+  ) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    legend.position = "top",
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 11, colour = "grey30"),
+    panel.grid.minor = element_blank()
+  )
+
+# Save plot
+ggsave(
+  filename = "picture/pv_capacity_vs_demand_trend_with_smooth.png",
+  plot = p_monthly_trend,
+  width = 9, height = 6, dpi = 300
+)
+
+```
+
+The plots compare how the relationship between rooftop PV capacity and monthly electricity demand has changed before and after FY2020 (July 2019) across four seasons in Victoria.Seasonal asymmetry has intensified after FY2020.Rooftop PV now strongly suppresses summer and spring demand, while winter demand increases despite PV growth.
+This demonstrates a structural shift in Victoria’s load–generation balance, aligning with large-scale PV adoption under the Solar Homes Program.“The model expects rooftop solar to always reduce demand — but after 2020, in winter, it doesn’t. Heating demand rises faster than PV can offset it.”
+
+How to address it:
+- Model local seasonal regimes (e.g., via clustering or varying-coefficient models) to better reflect asymmetric seasonal behavior.
+### How has the shape of demand changed with solar installations?(half-hourly basis)
+summary: Since 2013, Victoria’s rooftop PV capacity has expanded from about 0.5 GW to over 5 GW, driving a dramatic shift in demand patterns. Midday demand has plunged, especially in summer, while evening peaks remain high or rising, causing the classic duck curve gap to widen nearly fourfold. Seasonal analysis shows summer with the deepest midday troughs and steepest evening ramps, while winter sees little midday reduction but increasingly late peaks, highlighting greater dependence on dispatchable generation. Transitioning from monthly averages to half-hourly intraday profiles clearly reveals how rooftop PV reshaped daily demand dynamics across the decade.
+
+```{r}
+demand_fy <- demand %>%
+  unnest(datetime) %>%
+  mutate(date = as.Date(datetime)) %>%
+  filter(between(date, as.Date("2013-07-01"), as.Date("2025-06-30"))) %>%
+  mutate(
+    finyear = if_else(
+      month(date) >= 7,
+      paste0(year(date), "-", year(date) + 1),
+      paste0(year(date) - 1, "-", year(date))
+    )
+  )
+demand_fy %>%
+  mutate(hod = hour(datetime) + minute(datetime)/60) %>%
+  group_by(finyear, hod) %>%
+  summarise(mean_demand = mean(demand, na.rm=TRUE), .groups="drop") %>%
+  ggplot(aes(hod, mean_demand, colour=finyear)) +
+  geom_line(size=1) +
+  labs(title="Duck curve evolution in VIC (by financial year)",
+       x="Hour of day", y="Average demand (MW)", colour="FinYear") +
+  theme_minimal()
+# --- Prep PV capacity (monthly → FY totals) ---
+solar_capacity_fy <- solar_capacity_vic %>%
+  mutate(
+    finyear = if_else(
+      month(month) >= 7,
+      paste0(year(month), "-", year(month) + 1),
+      paste0(year(month) - 1, "-", year(month))
+    )
+  ) %>%
+  group_by(finyear) %>%
+  summarise(
+    cum_capacity_mw = max(cum_capacity_kw, na.rm = TRUE)/1000,  # convert kW → MW
+    .groups = "drop"
+  )
+demand_curve_fy <- demand_fy %>%
+  mutate(hod = hour(datetime) + minute(datetime)/60) %>%
+  group_by(finyear, hod) %>%
+  summarise(mean_demand = mean(demand, na.rm=TRUE), .groups="drop")
+demand_curve_fy <- demand_curve_fy %>%
+  left_join(solar_capacity_fy, by="finyear")
+
+# Key PV years (place at midday instead of endpoints)
+pv_notes <- demand_curve_fy %>%
+  filter(finyear %in% c("2013-2014","2019-2020","2024-2025")) %>%
+  filter(hod == 12) %>%   # midday
+  mutate(label = paste0(finyear, "\nPV: ", round(cum_capacity_mw), " MW"))
+
+ggplot(demand_curve_fy, aes(hod, mean_demand, colour=finyear)) +
+  geom_line(size=1) +
+  # PV capacity notes at midday for clarity
+  geom_label_repel(
+    data = pv_notes,
+    aes(label = label),
+    fill="white", colour="black", size=3,
+    nudge_y=100, show.legend=FALSE
+  ) +
+  labs(
+    title="Duck Curve Evolution in VIC (by Financial Year)",
+    subtitle="Earliest & latest labelled at curve ends; PV capacity shown at midday for 2013–14, 2019–20, 2024–25",
+    x="Hour of Day", y="Average Demand (MW)", colour="Financial Year"
+  ) +
+  theme_minimal()
+
+# 1) Build demand_fy with season + hod
+demand_fy <- demand %>%
+  unnest(datetime) %>%
+  mutate(
+    date = as.Date(datetime),
+    finyear = if_else(month(date) >= 7,
+                      paste0(year(date), "-", year(date) + 1),
+                      paste0(year(date) - 1, "-", year(date))),
+    season = case_when(
+      month(date) %in% c(12,1,2) ~ "Summer",
+      month(date) %in% c(3,4,5)         ~ "Autumn",
+      month(date) %in% c(6,7,8)       ~ "Winter",
+      month(date) %in% c(9,10,11)        ~ "Spring"
+    ),
+    season = factor(season, levels = c("Summer","Autumn","Winter","Spring")),
+    hod = hour(datetime) + minute(datetime)/60
+  ) %>%
+  filter(between(date, as.Date("2013-07-01"), as.Date("2025-06-30")))
+
+# 2) Aggregate to FY × Season × HOD curves
+demand_curve_fyseas <- demand_fy %>%
+  group_by(finyear, season, hod) %>%
+  summarise(mean_demand = mean(demand, na.rm = TRUE), .groups = "drop")
+
+# 3) PV capacity: map monthly → FY, then join (PV is FY-level; same across seasons)
+solar_capacity_fy <- solar_capacity_vic %>%
+  mutate(
+    finyear = if_else(month(month) >= 7,
+                      paste0(year(month), "-", year(month) + 1),
+                      paste0(year(month) - 1, "-", year(month))
+    )
+  ) %>%
+  group_by(finyear) %>%
+  summarise(cum_capacity_mw = max(cum_capacity_kw, na.rm = TRUE) / 1000, .groups = "drop")
+
+demand_curve_fyseas <- demand_curve_fyseas %>%
+  left_join(solar_capacity_fy, by = "finyear")
+
+# 4) Label PV at midday per (season, finyear)
+# Use closest-to-12 in case hod has fractional minutes
+key_fy <- c("2013-2014","2019-2020","2024-2025")
+
+pv_notes_season <- demand_curve_fyseas %>%
+  filter(finyear %in% key_fy) %>%
+  group_by(season, finyear) %>%
+  slice_min(abs(hod - 12), with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(label = paste0(finyear, "\nPV: ", round(cum_capacity_mw), " MW"))
+
+# 5) Plot: facet by season
+ggplot(demand_curve_fyseas, aes(hod, mean_demand, colour = finyear)) +
+  geom_line(size = 1) +
+  geom_label_repel(
+    data = pv_notes_season,
+    aes(label = label),
+    fill = "white", colour = "black", size = 3,
+    box.padding = .3, point.padding = .2, show.legend = FALSE
+  ) +
+  facet_wrap(~ season, ncol = 2, scales = "free_y") +
+  labs(
+    title = "Seasonal Duck Curve Evolution in VIC (by Financial Year)",
+    subtitle = "Faceted by season. PV capacity labelled at midday for 2013–14, 2019–20, 2024–25.",
+    x = "Hour of Day", y = "Average Demand (MW)", colour = "Financial Year"
+  ) +
+  theme_minimal()
+```
+From 2019 onwards, Victoria’s half-hourly demand profile shows a clear emergence of the duck curve. The two daily peaks have shifted, with the morning peak appearing sharper and slightly earlier, and the evening peak moving later into the evening and rising higher. At the same time, the midday trough has deepened significantly, reflecting the growing impact of rooftop solar installations that offset daytime demand. Together, these changes highlight how solar penetration is reshaping demand patterns—flattening the middle of the day while creating steeper ramping requirements into the evening peak.
+breaking the duck curve evolution by season will make the PV impact much clearer, since rooftop solar reshapes summer daytime demand far more than winter.
+Summer: PV dominates, system must handle midday oversupply + evening ramp.
+Winter: PV less helpful, peak reliability risk shifts later in the day.
+```{r}
+# Compute midday trough & evening peak per financial year
+avg_by_finyear <- demand_fy %>%
+  mutate(
+    hod = hour(datetime) + minute(datetime)/60   # half-hour of day as decimal
+  ) %>%
+  group_by(finyear, hod) %>%
+  summarise(mean_demand = mean(demand, na.rm=TRUE), .groups="drop")
+
+duck_index <- avg_by_finyear %>%
+  group_by(finyear) %>%
+  summarise(
+    midday_trough = min(mean_demand[hod >= 10 & hod <= 15], na.rm = TRUE),
+    evening_peak  = max(mean_demand[hod >= 17 & hod <= 21], na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    duck_index = evening_peak - midday_trough
+  )
+# Visualise duck index over time
+ggplot(duck_index, aes(finyear, duck_index, group=1)) +
+  geom_line(colour="steelblue", size=1) +
+  geom_point(size=2) +
+  labs(title="Duck Curve Index in VIC by Financial Year",
+       x="Financial Year", y="Evening peak – Midday trough (MW)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=45, hjust=1))
+
+```
+as PV adoption increases, the midday trough deepens.The duck curve index in Victoria has grown nearly linearly after 2019, closely tracking the rapid expansion of rooftop solar installations. This confirms that increasing PV penetration deepens the midday trough and accentuates the evening peak, intensifying operational challenges such as steep evening ramps.
+
+```{r}
+# --- 1) Make VIC cumulative installs by financial year (max within FY) ---
+solar_vic_fy <- solar_installs_vic %>%                     # columns: month, cum_installs (monthly, VIC only)
+  filter(month >= ymd("2013-07-01"), month <= ymd("2025-06-30")) %>%
+  mutate(finyear = if_else(month(month) >= 7,
+                           paste0(year(month), "-", year(month)+1),
+                           paste0(year(month)-1, "-", year(month)))) %>%
+  group_by(finyear) %>%
+  summarise(cum_installs_fy = max(cum_installs, na.rm = TRUE), .groups="drop")
+
+# --- 2) Join with duck index ---
+duck_vs_pv <- duck_index %>%
+  inner_join(solar_vic_fy, by = "finyear")
+
+# --- 3) Compute scale so the right axis lines up nicely ---
+scale_factor <- max(duck_vs_pv$duck_index, na.rm = TRUE) /
+                max(duck_vs_pv$cum_installs_fy, na.rm = TRUE)
+
+# --- 4) Plot with secondary axis ---
+
+# Find the middle year index
+mid_idx <- round(nrow(duck_vs_pv) / 2)
+
+# Create a small data frame for labeling
+label_data <- duck_vs_pv %>%
+  slice(mid_idx) %>%
+  mutate(
+    duck_label_y = duck_index,
+    solar_label_y = cum_installs_fy * scale_factor
+  )
+
+ggplot(duck_vs_pv, aes(x = finyear, group = 1)) +
+  # Duck index line
+  geom_line(aes(y = duck_index), size = 1, colour = "black") +
+  geom_point(aes(y = duck_index), size = 2, colour = "black") +
+  
+  # Solar installs line (scaled)
+  geom_line(aes(y = cum_installs_fy * scale_factor), linetype = 2, colour = "grey20") +
+  geom_point(aes(y = cum_installs_fy * scale_factor), shape = 1, size = 2, colour = "grey20") +
+  
+  # Labels in the middle
+  geom_text(
+    data = label_data,
+    aes(x = finyear, y = duck_label_y, label = "Duck Curve Index"),
+    vjust = -1, colour = "black", size = 4
+  ) +
+  geom_text(
+    data = label_data,
+    aes(x = finyear, y = solar_label_y, label = "Rooftop Solar Installs"),
+    vjust = 1.5, colour = "grey20", size = 4
+  ) +
+  
+  scale_y_continuous(
+    name = "Duck Curve Index (MW)",
+    sec.axis = sec_axis(~ . / scale_factor, name = "VIC cumulative rooftop installs")
+  ) +
+  labs(title = "VIC Duck Curve Index vs Rooftop Solar Growth (by Financial Year)",
+       x = "Financial Year") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+This figure clearly demonstrates that the Duck Curve Index in Victoria — the gap between the evening peak and the midday trough in demand — has risen steadily and sharply since 2013–14, particularly after 2019. Over the same period, the growth in cumulative rooftop solar installations has accelerated almost in parallel. The alignment of these two trends confirms the causal relationship: as more households and businesses install rooftop PV, midday demand is increasingly offset, deepening the trough, while evening demand remains high, steepening the ramp. By 2024–25, the duck curve index exceeds 2,200 MW, more than four times its 2013–14 level, underscoring the profound impact of distributed solar on grid demand patterns and the growing operational challenge of managing evening ramps.
+
+## 3.6 How can we best represent seasonality in the data set?
+
+use data from 2013.7.1 to 2025.6.30(12 finyears) 
+
+### Variation within week (Weekday vs weekend effect(demand) --- day of the week) group by finyear,canlendar 2013 and 2025 data is partial year,average may look lower compared to full year
+
+```{r}
+dow_demand <- full_daily_pca|>
+  filter(date <= "2025-06-30")|>
+  group_by(dow,finyear)|>
+  summarise(demand = mean(demand,na.rm =T, .groups = "drop"))
+
+ggplot(dow_demand,aes(x=dow,y=demand,group = fct_inorder(finyear),colour= fct_inorder(finyear)))+
+  geom_line()
+
+p4<- ggplot(dow_demand,aes(x=dow,y=demand,group = fct_inorder(finyear),colour= fct_inorder(finyear)))+
+  geom_line()+
+  labs(
+    subtitle = "Finyear: {closest_state}"
+  )+
+  theme_minimal()+
+  theme(
+    plot.subtitle = element_text(size = 20,face = "bold", colour = "blue")
+  )
+#anim4 <- p4+
+  #transition_states(fct_inorder(finyear),transition_length = 2,state_length = 5 )+
+  #enter_fade()+exit_fade()+
+  #ease_aes("quadratic-in-out")
+#animate(anim4,width = 900,height = 600,res = 120,fps = 20,duration = 14,renderer = #gifski_renderer())
+#anim_save("picture/dow_demand_by_year.gif")
+```
+
+The weekly cycle (high weekdays, low weekends) is stable across years,this reflects typical system dynamics where weekdays drive higher consumption (business, industry, commuting) but overall demand has gradually declined, indicating structural changes while daily routines remain intact.Load forecasting model must explicitly account for day of week effects,otherwise residuals will be highly structured.
+
+### Traditional weekly/monthly/seasonal patterns
+
+#### week of the year(1-52)
+
+```{r}
+weekly_demand <- full_daily_pca|>
+  filter(date <= "2025-06-30")|>
+  group_by(week,year)|>
+  summarise(demand = mean(demand,na.rm =T, .groups = "drop"))
+
+ggplot(weekly_demand,aes(x=week,y=demand,group =factor(year),colour= factor(year)))+
+  geom_line()
+p5<- ggplot(weekly_demand,aes(x=week,y=demand,group =factor(year),colour= factor(year)))+
+  geom_line()+
+  labs(
+    subtitle = "year: {closest_state}"
+  )+
+  theme_minimal()+
+  theme(
+    plot.subtitle = element_text(size = 20,face = "bold", colour = "blue")
+  ) 
+#anim5 <- p5+
+  #transition_states(year,transition_length = 2,state_length = 5 )+
+  #enter_fade()+exit_fade()+
+  #ease_aes("quadratic-in-out")
+#animate(anim5,width = 900,height = 600,res = 120,fps = 20,duration = 14,renderer = gifski_renderer())
+#anim_save("picture/weekly_demand_by_year.gif")
+
+```
+
+week-of-year is not a stable seasonal index since calendar shifts, movable holidays, and extreme weather events cause peaks to vary year by year. Demand levels also reflect structural changes such as COVID impacts, rooftop PV uptake, and efficiency gains. To capture seasonality more robustly, it is better to use day-of-year or cyclic smooth terms with holiday controls, rather than fixed week numbers. 
+#### month of the year(1-12)
+
+```{r}
+# Reorder months to start from April
+month_levels <- c("Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec","Jan","Feb","Mar")
+
+monthly_demand <- full_daily_pca |>
+  filter(date <= "2025-06-30") |>
+  mutate(
+    year  = year(date),
+    month = factor(month.abb[month(date)], levels = month_levels)
+  ) |>
+  group_by(year, month) |>
+  summarise(demand = mean(demand, na.rm = TRUE), .groups = "drop")
+
+# Static plot
+p6 <- ggplot(monthly_demand, aes(x = month, y = demand, group = factor(year), colour = factor(year))) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Monthly Average Electricity Demand (Victoria)",
+    subtitle = "Aligned by AEMO Season Year (Apr–Mar)",
+    x = NULL, y = "Average Demand (MW)",
+    colour = "Year"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.subtitle = element_text(size = 18, face = "bold", colour = "#1f78b4"),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+p6
+#anim6 <- p6+
+  #transition_states(year,transition_length = 2,state_length = 5 )+
+  #enter_fade()+exit_fade()+
+  #ease_aes("quadratic-in-out")
+#animate(anim6,width = 900,height = 600,res = 120,fps = 20,duration = 14,renderer = gifski_renderer())
+#anim_save("picture/monthly_demand_by_year.gif")
+
+```
+
+### seasonal patterns(traditional 4 season)
+
+```{r}
+# Ensure correct seasonal order
+seasonal_demand <- full_daily_pca |>
+  filter(date <= "2025-06-30") |>
+  group_by(season, year) |>
+  summarise(demand = mean(demand, na.rm = TRUE), .groups = "drop") |>
+  mutate(
+    season = factor(season, levels = c("Autumn", "Winter", "Spring","Summer"))
+  )
+
+# ---- Static version ----
+p7 <- ggplot(seasonal_demand, aes(x = season, y = demand,
+                                  group = factor(year), colour = factor(year))) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "Average Seasonal Electricity Demand (Victoria)",
+    subtitle = "2013–2025",
+    x = NULL, y = "Average Demand (MW)",
+    colour = "Year"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.subtitle = element_text(size = 16, face = "bold", colour = "#1f78b4"),
+    axis.text.x = element_text(size = 13, face = "bold"),
+    legend.position = "right"
+  )
+
+p7
+
+#anim7 <- p7+
+  #transition_states(year,transition_length = 2,state_length = 5 )+
+  #enter_fade()+exit_fade()+
+  #ease_aes("quadratic-in-out")
+#animate(anim7,width = 900,height = 600,res = 120,fps = 20,duration = 14,renderer = gifski_renderer())
+#anim_save("picture/seasonal_demand_by_year.gif")
+
+```
+
+monthly + seasonal patterns: The monthly breakdown reveals a classic double peak each year, but with a notable trend — summer demand has steadily declined over time, largely due to rooftop PV and efficiency gains reducing daytime cooling loads, while winter demand has remained more stable. Taken together, the seasonal cycle remains strong, but its amplitude has shifted, with weakening summer peaks underscoring the need to model both seasonality and long-term structural change. 
+
+### 3.7 whether a season needs subdivision check the variability of weather factors(Tmax,Tmin,Solar)within the four calendar seasons,and to visualise whether a season needs subdivision.
+
+```{r}
+#Tmax distribution by season
+ggplot(full_daily_core,aes(x=season,y=Tmax,fill = season))+
+  geom_violin(trim = FALSE,alpha = 0.6)+
+  geom_boxplot(width = 0.1,colour="black",alpha=0.7)+
+  labs(title="Distribution of Tmax by Calendar Season",
+       x="Season",y="Tmax")+
+  theme_minimal()
+#Tmin distribution by season
+ggplot(full_daily_core,aes(x=season,y=Tmin,fill = season))+
+  geom_violin(trim = FALSE,alpha = 0.6)+
+  geom_boxplot(width = 0.1,colour="black",alpha=0.7)+
+  labs(title="Distribution of Tmin by Calendar Season",
+       x="Season",y="Tmin")+
+  theme_minimal()
+#solar distribution by season
+ggplot(full_daily_core,aes(x=season,y=Solar,fill = season))+
+  geom_violin(trim = FALSE,alpha = 0.6)+
+  geom_boxplot(width = 0.1,colour="black",alpha=0.7)+
+  labs(title="Distribution of Solar by Calendar Season",
+       x="Season",y="Solar")+
+  theme_minimal()
+```
+
+# 4. Weather-driven day clustering (Local season)
+Weather-driven day clustering provides a data-driven definition of seasons, grouping days by actual meteorological conditions (hot, cold, mild, sunny) rather than fixed calendar months. The workflow involves: 
+(1) build weather features, (2) cluster days, (3) diagnose clusters, and (4) use clusters in GAM.
+These often have overlapping seasonal patterns (e.g., spring and autumn mix warm and cold days) — so:use GMM (Gaussian Mixture Models) for weather-driven clustering
+```{r}
+# Holidays (VIC)
+holidays <- tsibble::holiday_aus(2013:2025, state = "VIC") |> dplyr::pull(date)
+
+dat <-full_daily_pca|>
+  arrange(date) |>
+  mutate(
+    date      = as.Date(date),
+    doy       = yday(date),
+    dow       = factor(wday(date, label = TRUE, week_start = 1), ordered = TRUE),
+    year      = year(date),
+    month = factor(month(date)),
+    season = factor(case_when(
+      month %in% c(12,1,2) ~ "Summer",
+      month %in% c(3,4,5) ~ "Autumn",
+      month %in% c(6,7,8) ~ "Winter",
+      month %in% c(9,10,11) ~ "Spring"
+    )),
+    ##AEMO-style season definitions (summer/winter; season-year)
+    #season = case_when(
+      #month(date) %in% c(11,12,1,2,3) ~ "summer",   # Nov–Mar
+      #month(date) %in% c(6,7,8)       ~ "winter",
+      #TRUE                             ~ "shoulder"
+    #) |> factor(levels = c("summer","winter","shoulder"))
+    is_holiday= date %in% holidays,
+    # handle gaps for lags & AR
+    #seg_id    = cumsum(c(TRUE, diff(date) > 1)),
+    #lag1      = lag(demand, 1),
+    #lag7      = lag(demand, 7),
+    #lag1      = ifelse(lag(seg_id)   != seg_id, NA, lag1),
+    #lag7      = ifelse(lag(seg_id,7) != seg_id, NA, lag7),
+    #AR.start  = c(TRUE, diff(date) > 1),
+    Tmean_pca = (tmax_pca + tmin_pca) / 2,
+    Trange_pca = tmax_pca - tmin_pca,
+    HDD = pmax(0, 16.5 - Tmean_pca),
+    CDD = pmax(0, Tmean_pca - 18.0),
+    heat_on = factor(HDD > 0,  levels = c(FALSE, TRUE), labels = c("off","on")),
+    cool_on = factor(CDD > 0,  levels = c(FALSE, TRUE), labels = c("off","on")),
+    time_num  = as.numeric(date),
+    t = as.numeric(date - min(date)),   # time index in days
+    sin_t = sin(2*pi*t/365.25),
+    cos_t = cos(2*pi*t/365.25),
+    t_sin = t * sin_t,
+    t_cos = t * cos_t 
+  ) 
+```
+
+```{r}
+dat_6y <- dat %>%
+  mutate(date = as.Date(date)) %>%  
+  filter(date >= as.Date("2019-07-01"))|>    # daily date column
+  mutate(month = floor_date(date, "month"))%>%
+  left_join(
+    solar_installs_vic %>%
+      select(month, installs),
+    by = "month"
+  )|>
+  mutate(
+    pv_output_proxy = installs * pmax(solar_pca, 0)  # MW·solar index
+  )
+```
+
+```{r}
+# ─────────────────────────────────────────────────────────────
+# 1) Features & scaling
+# ─────────────────────────────────────────────────────────────
+weather_features <- dat_6y %>%
+  transmute(date, tmax_pca, tmin_pca, solar_pca)
+
+X <- scale(weather_features %>% select(-date))
+
+# ─────────────────────────────────────────────────────────────
+# 2) GMM via BIC (3–6 clusters) + assignments
+# ─────────────────────────────────────────────────────────────
+set.seed(123)
+gmm_fit <- Mclust(X, G = 3:6)
+summary(gmm_fit) 
+plot(gmm_fit, what = "BIC")
+
+wf_clusters <- weather_features %>%
+  mutate(
+    cluster_id   = factor(gmm_fit$classification),
+    cluster_prob = apply(gmm_fit$z, 1, max)
+  )
+
+# Merge clusters back to main dataset
+dat_gmm <- dat_6y %>%
+  left_join(wf_clusters %>% select(date, cluster_id, cluster_prob), by = "date")
+
+# ─────────────────────────────────────────────────────────────
+# 3) Cluster profiles (means in original PCA units)
+# ─────────────────────────────────────────────────────────────
+cluster_summary <- dat_gmm %>%
+  filter(!is.na(cluster_id)) %>%
+  group_by(cluster_id) %>%
+  summarize(
+    Tmax  = mean(tmax_pca,  na.rm = TRUE),
+    Tmin  = mean(tmin_pca,  na.rm = TRUE),
+    Solar = mean(solar_pca, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ─────────────────────────────────────────────────────────────
+# 4) Label clusters (build a lookup and join)
+#    NOTE: adjust labels if needed after reviewing cluster_summary
+# ─────────────────────────────────────────────────────────────
+label_map <- cluster_summary %>%
+  transmute(
+    cluster_id,
+    cluster_label = case_when(
+      as.integer(cluster_id) == 1 ~ "Cold & Cloudy",
+      as.integer(cluster_id) == 2 ~ "Warm & Bright",
+      as.integer(cluster_id) == 3 ~ "Hot & Very Sunny",
+      as.integer(cluster_id) == 4 ~ "Hot & Partly Cloudy",
+      as.integer(cluster_id) == 5 ~ "Cold & Sunny",
+      as.integer(cluster_id) == 6 ~  "Mild & Transitional",
+      TRUE ~ paste("Cluster", as.character(cluster_id))
+    )
+  )
+
+dat_gmm_lab <- dat_gmm %>%
+  left_join(label_map, by = "cluster_id")
+
+# ─────────────────────────────────────────────────────────────
+# 5) Financial year (AEMO July→June)
+# ─────────────────────────────────────────────────────────────
+dat_gmm_lab <- dat_gmm_lab %>%
+  mutate(finyear = if_else(month(date) >= 7,
+                           paste0(year(date) + 1),
+                           paste0(year(date))))
+
+# Composition by FY
+fy_cluster <- dat_gmm_lab %>%
+  filter(!is.na(cluster_label)) %>%
+  count(finyear, cluster_label) %>%
+  group_by(finyear) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup()
+
+ggplot(fy_cluster, aes(x = finyear, y = share, fill = cluster_label)) +
+  geom_col(position = "stack") +
+  scale_y_continuous(labels = percent_format()) +
+  labs(title = "Cluster Composition by Financial Year (July–June)",
+       y = "Share of Days", x = "Financial Year", fill = "Cluster") +
+  theme_minimal(base_size = 13)
+
+# ─────────────────────────────────────────────────────────────
+# 6) PCA projection scatter (use weather_features)
+# ─────────────────────────────────────────────────────────────
+pca_plot <- prcomp(weather_features %>% select(tmax_pca, tmin_pca, solar_pca),
+                   scale. = TRUE)
+
+pc_df <- as_tibble(pca_plot$x[, 1:2]) %>%
+  mutate(
+    date          = weather_features$date,
+    cluster_label = dat_gmm_lab$cluster_label,
+    cluster_prob  = dat_gmm_lab$cluster_prob
+  )
+
+ggplot(pc_df, aes(PC1, PC2, color = cluster_label, alpha = cluster_prob)) +
+  geom_point(size = 2) +
+  scale_alpha(range = c(.4, 1), guide = "none") +
+  labs(title = "GMM Weather Clusters (PCA Projection)",
+       subtitle = "Transparency shows membership probability",
+       color = "Cluster") +
+  theme_minimal()
+
+# ─────────────────────────────────────────────────────────────
+# 7) Pairwise feature scatter (labels)
+# ─────────────────────────────────────────────────────────────
+ggpairs(
+  weather_features %>%
+    mutate(cluster_label = dat_gmm_lab$cluster_label) %>%
+    select(cluster_label, tmax_pca, tmin_pca, solar_pca),
+  aes(color = cluster_label, alpha = 0.85),
+  upper = list(continuous = "points"),
+  lower = list(continuous = "points"),
+  diag  = list(continuous = "densityDiag")
+) + theme_minimal()
+
+# ─────────────────────────────────────────────────────────────
+# 8) Cluster profiles (bars) — labels
+# ─────────────────────────────────────────────────────────────
+cluster_profile <- dat_gmm_lab %>%
+  filter(!is.na(cluster_label)) %>%
+  group_by(cluster_label) %>%
+  summarize(
+    Tmax  = mean(tmax_pca,  na.rm = TRUE),
+    Tmin  = mean(tmin_pca,  na.rm = TRUE),
+    Solar = mean(solar_pca, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(-cluster_label, names_to = "Feature", values_to = "Mean")
+
+ggplot(cluster_profile, aes(Feature, Mean, fill = cluster_label)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  labs(title = "Average Weather Feature by Cluster (Labels)",
+       x = NULL, y = "Mean (PCA units)", fill = "Cluster") +
+  theme_minimal()
+
+# ─────────────────────────────────────────────────────────────
+# 9) Radar chart (scaled 0–1)
+# ─────────────────────────────────────────────────────────────
+prof_wide <- dat_gmm_lab %>%
+  filter(!is.na(cluster_label)) %>%
+  group_by(cluster_label) %>%
+  summarize(
+    Tmax  = mean(tmax_pca,  na.rm = TRUE),
+    Tmin  = mean(tmin_pca,  na.rm = TRUE),
+    Solar = mean(solar_pca, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+rng <- data.frame(
+  Tmax  = c(max(prof_wide$Tmax),  min(prof_wide$Tmax)),
+  Tmin  = c(max(prof_wide$Tmin),  min(prof_wide$Tmin)),
+  Solar = c(max(prof_wide$Solar), min(prof_wide$Solar))
+)
+radar_df <- rbind(rng, prof_wide %>% select(-cluster_label))
+row.names(radar_df) <- c("max","min", as.character(prof_wide$cluster_label))
+
+cols <- hue_pal()(nrow(prof_wide))
+radarchart(
+  radar_df, axistype = 1, pcol = cols, pfcol = alpha(cols, .3), plwd = 2,
+  cglcol = "grey80", cglty = 1, axislabcol = "grey20", vlcex = 1.05,
+  title = "Cluster Profiles (Scaled 0–1)"
+)
+legend("topright", legend = prof_wide$cluster_label, col = cols, lwd = 2, bty = "n")
+
+# ─────────────────────────────────────────────────────────────
+# 10) Timeline ribbon — daily assignment (labels)
+# ─────────────────────────────────────────────────────────────
+ggplot(dat_gmm_lab %>% filter(!is.na(cluster_label)),
+       aes(x = date, y = 1, fill = cluster_label)) +
+  geom_tile(height = 1) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(title = "Daily Cluster Assignment Over Time", x = NULL, fill = "Cluster") +
+  theme_minimal()
+
+# ─────────────────────────────────────────────────────────────
+# 11) Month × Cluster heatmap
+# ─────────────────────────────────────────────────────────────
+month_cluster <- dat_gmm_lab %>%
+  filter(!is.na(cluster_label)) %>%
+  mutate(month = factor(month(date), levels = 1:12, labels = month.abb)) %>%
+  count(month, cluster_label) %>%
+  group_by(month) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup()
+
+heatmap_month <- ggplot(month_cluster, aes(month, cluster_label, fill = share)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "#deebf7", high = "#08519c", name = "Share") +
+  labs(title = "Month vs Cluster (Share within Month)", x = NULL, y = "Cluster") +
+  theme_minimal()
+
+# ─────────────────────────────────────────────────────────────
+# 12) Season × Cluster heatmap
+# ─────────────────────────────────────────────────────────────
+season_cluster <- dat_gmm_lab %>%
+  filter(!is.na(cluster_label)) %>%
+  mutate(season = factor(case_when(
+    month(date) %in% c(12,1,2) ~ "Summer",
+    month(date) %in% c(3,4,5)  ~ "Autumn",
+    month(date) %in% c(6,7,8)  ~ "Winter",
+    TRUE                       ~ "Spring"
+  ), levels = c("Summer","Autumn","Winter","Spring"))) %>%
+  count(season, cluster_label) %>%
+  group_by(season) %>%
+  mutate(share = n / sum(n)) %>%
+  ungroup()
+
+heatmap_season <- ggplot(season_cluster, aes(season, cluster_label, fill = share)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "#deebf7", high = "#08519c", name = "Share") +
+  labs(title = "Season vs Cluster (Share within Season)", x = NULL, y = "Cluster") +
+  theme_minimal()
+
+# Combine heatmaps horizontally
+heatmap_panel <- heatmap_month | heatmap_season
+
+# Optionally unify legends and add a title
+heatmap_panel <- heatmap_panel +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+
+heatmap_panel <- heatmap_panel + plot_annotation(
+  title = "Cluster Distribution by Month and Season",
+  theme = theme(plot.title = element_text(face = "bold", size = 14))
+)
+
+
+ggsave(
+  filename = "picture/heatmap_panel.png",
+  plot = heatmap_panel,
+  width = 12, height = 6, units = "in", dpi = 300
+)
+```
+
+```{r}
+# ────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────
+# 8) Demand–cluster relationships
+# ─────────────────────────────────────────────────────────────
+cluster_demand_summary <- dat_gmm_lab %>%
+  filter(!is.na(cluster_label), !is.na(demand)) %>%
+  group_by(cluster_label) %>%
+  summarize(
+    n_days        = n(),
+    mean_demand   = mean(demand, na.rm = TRUE),
+    sd_demand     = sd(demand, na.rm = TRUE),
+    median_demand = median(demand, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(mean_demand))
+
+print(cluster_demand_summary)
+
+ggplot(cluster_demand_summary,
+       aes(x = fct_reorder(cluster_label, mean_demand), y = mean_demand, fill = cluster_label)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Mean Electricity Demand by Weather Cluster",
+       y = "Mean Demand (MW)", x = NULL, fill = "Cluster") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+
+```
+
+
+# 5. Methodology
+
+## 5.1 Statistical Models
+
+Generalized Additive Model (GAM):
+Captures nonlinear effects of temperature, solar exposure, and seasonal cycles using smooth terms. Tensor interactions (e.g., ti(Tmax, Tmin, Solar)) model combined weather effects, while time trend (t) and Fourier terms (t_sin, t_cos) represent gradual long-term changes and cyclic annual demand patterns.
+
+## 5.2 Model Evaluation
+For short to middle-term forecasting (1 day → 1 year) we want a training window that’s long enough to contain multiple recent seasonal cycles but not so long that it dilutes the latest system relationships (PV penetration, behavioural changes, etc.).
+
+The modeling period begins in FY2020, corresponding to the first full year following the launch of the Victorian Solar Homes Program (August 2018). This period marks a structural shift in the rooftop solar market, with consistent policy support and accelerated adoption. Data before FY2020 were excluded due to differing market conditions and low installation volumes.
+
+Start training at 2019-07-01 (FY 2020) — after PV penetration began to surge.
+
+Training/Test Split: 2020FY–2025FY training; 2024–2025 test.
+
+Cross-Validation: Rolling origin CV with 6-year horizon, 1-year step.
+
+Metrics: RMSE, MAE, MAPE, residual diagnostics (ACF, QQ plots).
+
+## 5.3 Model construction
+
+```{r}
+dat_lag <- dat_gmm_lab %>%
+  rename(local_season = cluster_label)%>%
+  arrange(date) %>%  
+  mutate(
+    month = factor(month(date, label = TRUE, abbr = TRUE),
+      levels = month.abb,
+      ordered = TRUE
+    ),
+    local_season = factor(local_season),
+    # Demand lags
+    demand_lag1  = lag(demand, 1),
+    demand_lag7  = lag(demand, 7),
+
+    # Weather lags (1-day & 7-day)
+    tmax_lag1    = lag(tmax_pca, 1),
+    tmax_lag7    = lag(tmax_pca, 7),
+    tmin_lag1    = lag(tmin_pca, 1),
+    tmin_lag7    = lag(tmin_pca, 7),
+    solar_lag1   = lag(solar_pca, 1),
+    solar_lag7   = lag(solar_pca, 7),
+
+    # Derived thermal indicators
+    HDD_lag1     = lag(HDD, 1),
+    HDD_lag7     = lag(HDD, 7),
+    CDD_lag1     = lag(CDD, 1),
+    CDD_lag7     = lag(CDD, 7),
+    Tmean_pca_lag1   = lag(Tmean_pca, 1),
+    Tmean_pca_lag7   = lag(Tmean_pca, 7),
+    Trange_pca_lag1  = lag(Trange_pca, 1),
+    Trange_pca_lag7  = lag(Trange_pca, 7)
+  ) %>%
+  # Remove rows with missing lag values
+  filter(if_all(ends_with(c("_lag1", "_lag7")), ~ !is.na(.))) 
+
+```
+
+```{r}
+training_data <- dat_lag|>filter(date >= as.Date("2019-07-01"),
+                                      date <= as.Date("2024-06-30"))
+testing_data  <- dat_lag |>  filter(date >= as.Date("2024-07-01"),date <= as.Date("2025-06-30"))
+```
+
+### baseline model
+
+```{r cache=TRUE}
+baseline_model_temp <- bam(
+  demand ~ t + t_sin + t_cos +
+    s(tmax_pca,  by = season) +
+    s(tmin_pca,  by = season) +
+    s(solar_pca, by= season)+
+    ti(tmax_pca, tmin_pca) +
+    ti(tmax_pca, solar_pca) +
+    ti(tmin_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + season + is_holiday+demand_lag1 + demand_lag7,
+  data   = training_data,
+  method   = "fREML",
+  discrete = TRUE
+)
+#basic dignostics
+summary(baseline_model_temp)
+gam.check(baseline_model_temp)
+```
+### Replace temp with HDD/CDD
+
+```{r cache=TRUE}
+gam_hddcdd <- bam(
+  demand ~ t + t_sin + t_cos +
+    s(HDD,  by = season) +
+    s(CDD,  by = season) +
+    s(solar_pca, by= season)+
+    ti(HDD, CDD) +
+    ti(HDD, solar_pca) +
+    ti(CDD, solar_pca) +
+    s(doy, bs = "cc") +
+    dow + season + is_holiday+demand_lag1 + demand_lag7,
+  data     = training_data,
+  method   = "fREML",
+  discrete = TRUE
+)
+
+summary(gam_hddcdd)
+gam.check(gam_hddcdd)
+
+```
+###  Replace temp with Tmean_pca and Trange_pca
+```{r cache=TRUE}
+model_mt <-bam(
+  demand ~ t + t_sin + t_cos +
+    s(Tmean_pca,  by = local_season, k = 10) +
+    s(Trange_pca, by = local_season, k = 8) +
+    s(solar_pca, by= local_season)+
+    ti(Tmean_pca, Trange_pca) + 
+    ti(Tmean_pca, solar_pca) + 
+    ti(Trange_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + local_season + is_holiday+demand_lag1 + demand_lag7,
+  data     = training_data,
+  method   = "fREML",
+  discrete = TRUE
+)
+summary(model_mt)
+gam.check(model_mt) 
+
+```
+
+
+## Compare models(Tmax/Tmin baseline, Tmean_pca/Trange_pca, HDD/CDD, season/local_season/month)
+runs the full modelling pipeline — fitting each GAM, evaluating training/testing metrics (R², RMSE, MAPE), checking residuals (plots + Ljung–Box + ACF/PACF), and comparing across the three formulations.
+
+```{r}
+# ============================================================
+# WEATHER-DEPENDENT LOAD FORECASTING: SIX-GAM COMPARISON
+#   Groupings: season, local_season, month
+#   Formulations: (Tmax/Tmin), (Tmean_pca/Trange_pca)
+# ============================================================
+
+# ---- 0) Utilities -----------------------------------------------------------
+rmse  <- function(a, p) sqrt(mean((a - p)^2, na.rm = TRUE))
+mape  <- function(a, p, eps = 1e-8) mean(abs((a - p) / pmax(abs(a), eps)), na.rm = TRUE) * 100
+r2_os <- function(y, yhat, ybar) 1 - sum((y - yhat)^2, na.rm = TRUE) / sum((y - ybar)^2, na.rm = TRUE)
+
+add_time_terms <- function(df, ref_start) {
+  df <- df |> dplyr::arrange(date)
+  t  <- as.numeric(df$date - ref_start)
+  dplyr::mutate(df,
+    t      = t,
+    sin_t  = sin(2*pi*t/365.25),
+    cos_t  = cos(2*pi*t/365.25),
+    t_sin  = t * sin_t,
+    t_cos  = t * cos_t
+  )
+}
+
+ensure_calendar <- function(df) {
+  out <- df
+  if (!"doy"   %in% names(out)) out <- dplyr::mutate(out, doy = lubridate::yday(date))
+  if (!"dow"   %in% names(out)) out <- dplyr::mutate(out, dow = factor(lubridate::wday(date, label = TRUE, week_start = 1), ordered = TRUE))
+  if (!"month" %in% names(out)) out <- dplyr::mutate(out, month = factor(lubridate::month(date, label = TRUE, abbr = TRUE), ordered = TRUE))
+  out
+}
+
+align_factors <- function(df, ref) {
+  dplyr::mutate(df,
+    dow          = factor(dow,          levels = levels(ref$dow),          ordered = is.ordered(ref$dow)),
+    season       = if ("season" %in% names(df) && "season" %in% names(ref))
+                     factor(season,       levels = levels(ref$season))       else .$season,
+    local_season = if ("local_season" %in% names(df) && "local_season" %in% names(ref))
+                     factor(local_season, levels = levels(ref$local_season)) else .$local_season,
+    month        = factor(month,        levels = levels(ref$month),        ordered = is.ordered(ref$month))
+  )
+}
+
+evaluate_bam <- function(model, name, train, test) {
+  yhat_tr <- as.numeric(predict(model, newdata = train, type = "response"))
+  yhat_te <- as.numeric(predict(model, newdata = test,  type = "response"))
+  res_tr  <- train$demand - yhat_tr
+  res_te  <- test$demand  - yhat_te
+
+  met <- dplyr::tibble(
+    Model   = name,
+    Dataset = c("TRAIN","TEST"),
+    R2      = c(r2_os(train$demand, yhat_tr, mean(train$demand)),
+                r2_os(test$demand,  yhat_te, mean(train$demand))),
+    RMSE    = c(rmse(train$demand, yhat_tr),
+                rmse(test$demand,  yhat_te)),
+    MAPE    = c(mape(train$demand, yhat_tr),
+                mape(test$demand,  yhat_te))
+  )
+
+  lb_tr <- Box.test(res_tr, lag = 14, type = "Ljung")
+  lb_te <- Box.test(res_te, lag = 14, type = "Ljung")
+
+  cat("\n──", name, "──\n"); print(met)
+  cat(sprintf("TRAIN Ljung–Box: X^2=%.3f, p=%.4g\n", lb_tr$statistic, lb_tr$p.value))
+  cat(sprintf("TEST  Ljung–Box: X^2=%.3f, p=%.4g\n",  lb_te$statistic, lb_te$p.value))
+
+  list(metrics = met,
+       fitted  = list(train = yhat_tr, test = yhat_te),
+       residuals = list(train = res_tr, test = res_te))
+}
+
+# ---- 1) Prepare TRAIN / TEST -----------------------------------------------
+stopifnot(all(c("date","demand") %in% names(training_data)),
+          all(c("date","demand") %in% names(testing_data)))
+
+t0 <- min(training_data$date, na.rm = TRUE)
+
+training_data <- training_data |> ensure_calendar() |> add_time_terms(ref_start = t0)
+testing_data  <- testing_data  |> ensure_calendar()  |> add_time_terms(ref_start = t0)
+testing_data  <- align_factors(testing_data, training_data)
+
+if (!"pv_output_proxy" %in% names(training_data)) {
+  message("pv_output_proxy not found — using solar_pca as proxy.")
+  training_data <- dplyr::mutate(training_data, pv_output_proxy = .data[["solar_pca"]])
+  testing_data  <- dplyr::mutate(testing_data,  pv_output_proxy = .data[["solar_pca"]])
+}
+
+# ---- 2) Six models (consistent names) --------------------------------------
+# A) Tmax/Tmin — season
+m_A <- mgcv::bam(
+  demand ~ t + t_sin + t_cos +
+    s(tmax_pca,  by = season) +
+    s(tmin_pca,  by = season) +
+    s(solar_pca, by = season) +
+    ti(tmax_pca, tmin_pca) +
+    ti(tmax_pca, solar_pca) +
+    ti(tmin_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + season + is_holiday +
+    demand_lag1 + demand_lag7,
+  data = training_data, method = "fREML", discrete = TRUE
+)
+
+# B) Tmean_pca/Trange_pca — season
+m_B <- mgcv::bam(
+  demand ~ t + t_sin + t_cos +
+    s(Tmean_pca,  by = season, k = 10) +
+    s(Trange_pca, by = season, k = 8) +
+    s(solar_pca, by = season, k = 8) +
+    ti(Tmean_pca, Trange_pca) +
+    ti(Tmean_pca, solar_pca) +
+    ti(Trange_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + season + is_holiday +
+    demand_lag1 + demand_lag7,
+  data = training_data, method = "fREML", discrete = TRUE
+)
+
+# C) Tmax/Tmin — local_season
+m_C <- mgcv::bam(
+  demand ~ t + t_sin + t_cos +
+    s(tmax_pca,  by = local_season) +
+    s(tmin_pca,  by = local_season) +
+    s(solar_pca, by = local_season) +
+    ti(tmax_pca, tmin_pca) +
+    ti(tmax_pca, solar_pca) +
+    ti(tmin_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + local_season + is_holiday +
+    demand_lag1 + demand_lag7,
+  data = training_data, method = "fREML", discrete = TRUE
+)
+
+# D) Tmean_pca/Trange_pca — local_season
+m_D <- mgcv::bam(
+  demand ~ t + t_sin + t_cos +
+    s(Tmean_pca,  by = local_season, k = 10) +
+    s(Trange_pca, by = local_season, k = 8) +
+    s(solar_pca, by = local_season, k = 8) +
+    ti(Tmean_pca, Trange_pca) +
+    ti(Tmean_pca, solar_pca) +
+    ti(Trange_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + local_season + is_holiday +
+    demand_lag1 + demand_lag7,
+  data = training_data, method = "fREML", discrete = TRUE
+)
+
+# E) Tmax/Tmin — month
+m_E <- mgcv::bam(
+  demand ~ t + t_sin + t_cos +
+    s(tmax_pca,  by = month) +
+    s(tmin_pca,  by = month) +
+    s(solar_pca, by = month) +
+    ti(tmax_pca, tmin_pca) +
+    ti(tmax_pca, solar_pca) +
+    ti(tmin_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + month + is_holiday +
+    demand_lag1 + demand_lag7,
+  data = training_data, method = "fREML", discrete = TRUE
+)
+
+# F) Tmean_pca/Trange_pca — month
+m_F <- mgcv::bam(
+  demand ~ t + t_sin + t_cos +
+    s(Tmean_pca,  by = month, k = 10) +
+    s(Trange_pca, by = month, k = 8) +
+    s(solar_pca, by = month, k = 8) +
+    ti(Tmean_pca, Trange_pca) +
+    ti(Tmean_pca, solar_pca) +
+    ti(Trange_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + month + is_holiday +
+    demand_lag1 + demand_lag7,
+  data = training_data, method = "fREML", discrete = TRUE
+)
+
+# ---- 3) Evaluate all six ----------------------------------------------------
+res_A <- evaluate_bam(m_A, "Tmax/Tmin (season)",                   training_data, testing_data)
+res_B <- evaluate_bam(m_B, "Tmean_pca/Trange_pca (season)",        training_data, testing_data)
+res_C <- evaluate_bam(m_C, "Tmax/Tmin (local_season)",             training_data, testing_data)
+res_D <- evaluate_bam(m_D, "Tmean_pca/Trange_pca (local_season)",  training_data, testing_data)
+res_E <- evaluate_bam(m_E, "Tmax/Tmin (month)",                    training_data, testing_data)
+res_F <- evaluate_bam(m_F, "Tmean_pca/Trange_pca (month)",         training_data, testing_data)
+
+# ---- 4) Metrics table & bar chart (TEST) -----------------------------------
+model_metrics <- dplyr::bind_rows(
+  res_A$metrics, res_B$metrics, res_C$metrics,
+  res_D$metrics, res_E$metrics, res_F$metrics
+)
+
+model_metrics %>%
+  dplyr::filter(Dataset == "TEST") %>%
+  dplyr::arrange(dplyr::desc(R2)) %>%
+  knitr::kable(digits = 3,
+    caption = "Model Performance Comparison (TEST): season vs local_season vs month")
+
+ggplot2::ggplot(model_metrics %>% dplyr::filter(Dataset == "TEST"),
+       ggplot2::aes(x = reorder(Model, RMSE), y = RMSE, fill = Model)) +
+  ggplot2::geom_col(alpha = 0.85) +
+  ggplot2::coord_flip() +
+  ggplot2::labs(title = "Short-term Forecast Accuracy (TEST)",
+       subtitle = "Grouping: season vs local_season vs month",
+       x = NULL, y = "RMSE (MW)") +
+  ggplot2::theme_minimal(base_size = 13) +
+  ggplot2::theme(legend.position = "none")
+
+# ---- 5) Forecast comparison (TEST) -----------------------------------------
+forecast_df_test <- testing_data %>%
+  dplyr::mutate(
+    yhat_A = res_A$fitted$test, yhat_B = res_B$fitted$test, yhat_C = res_C$fitted$test,
+    yhat_D = res_D$fitted$test, yhat_E = res_E$fitted$test, yhat_F = res_F$fitted$test
+  )
+
+label_map <- c(
+  yhat_A = "Tmax/Tmin (season)",
+  yhat_B = "Tmean_pca/Trange_pca (season)",
+  yhat_C = "Tmax/Tmin (local_season)",
+  yhat_D = "Tmean_pca/Trange_pca (local_season)",
+  yhat_E = "Tmax/Tmin (month)",
+  yhat_F = "Tmean_pca/Trange_pca (month)"
+)
+
+forecast_long <- forecast_df_test %>%
+  tidyr::pivot_longer(cols = dplyr::starts_with("yhat_"),
+                      names_to = "Model", values_to = "Forecast") %>%
+  dplyr::mutate(Model = unname(label_map[Model]))
+
+ggplot2::ggplot() +
+  ggplot2::geom_line(data = forecast_df_test, ggplot2::aes(x = date, y = demand),
+                     colour = "black", alpha = 0.85) +
+  ggplot2::geom_line(data = forecast_long, ggplot2::aes(x = date, y = Forecast, colour = Model),
+                     linewidth = 0.7) +
+  ggplot2::labs(title = "Forecast Comparison — TEST (1-year hold-out)",
+                y = "Demand (MW)", x = NULL, colour = "Model") +
+  ggplot2::theme_minimal(base_size = 12) +
+  ggplot2::theme(legend.position = "top")
+
+p_local_gam <- forecast_long |>
+  dplyr::filter(Model == "Tmean_pca/Trange_pca (local_season)") |>
+  ggplot2::ggplot() +
+  # Actual demand (black line)
+  ggplot2::geom_line(
+    data = forecast_df_test,
+    ggplot2::aes(x = date, y = demand),
+    colour = "black", alpha = 0.85
+  ) +
+  # Forecast line for Local-Season model
+  ggplot2::geom_line(
+    ggplot2::aes(x = date, y = Forecast, colour = Model),
+    linewidth = 0.7
+  ) +
+  ggplot2::scale_colour_manual(
+    values = c("Tmean_pca/Trange_pca (local_season)" = "#2C7FB8"),
+    labels = c("Local-Season GAM (Tmean_pca / Trange_pca)")
+  ) +
+  ggplot2::labs(
+    title = "1-Year Ahead Forecast — Local-Season GAM",
+    subtitle = "Test period: Jul 2024 – Jun 2025",
+    y = "Electricity Demand (MW)",
+    x = "Date",
+    colour = "Model"
+  ) +
+  ggplot2::theme_minimal(base_size = 13) +
+  ggplot2::theme(
+    legend.position = "top",
+    legend.title = element_blank(),
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 11, colour = "grey30")
+  )
+ggsave(
+  filename = "picture/p_local_gam .png",
+  plot = p_local_gam ,
+  width = 10, height = 6, dpi = 300
+)
+# ---- 6) Residuals over time — TRAIN & TEST (all six) -----------------------
+forecast_df_train <- training_data %>%
+  dplyr::mutate(
+    yhat_A = res_A$fitted$train, yhat_B = res_B$fitted$train, yhat_C = res_C$fitted$train,
+    yhat_D = res_D$fitted$train, yhat_E = res_E$fitted$train, yhat_F = res_F$fitted$train,
+    Dataset = "TRAIN"
+  ) %>% dplyr::select(date, demand, dplyr::starts_with("yhat_"), Dataset)
+
+forecast_df_test2 <- forecast_df_test %>%
+  dplyr::mutate(Dataset = "TEST") %>%
+  dplyr::select(date, demand, dplyr::starts_with("yhat_"), Dataset)
+
+forecast_all <- dplyr::bind_rows(forecast_df_train, forecast_df_test2)
+
+residuals_long <- forecast_all %>%
+  dplyr::transmute(
+    date, demand, Dataset,
+    `Tmax/Tmin (S)`                 = demand - yhat_A,
+    `Tmean_pca/Trange_pca (S)`      = demand - yhat_B,
+    `Tmax/Tmin (LS)`                = demand - yhat_C,
+    `Tmean_pca/Trange_pca (LS)`     = demand - yhat_D,
+    `Tmax/Tmin (M)`                 = demand - yhat_E,
+    `Tmean_pca/Trange_pca (M)`      = demand - yhat_F
+  ) %>%
+  tidyr::pivot_longer(-c(date, demand, Dataset), names_to = "Model", values_to = "Residual") %>%
+  dplyr::arrange(Dataset, Model, date) %>%
+  dplyr::group_by(Dataset, Model) %>%
+  dplyr::mutate(
+    res_7d  = zoo::rollmean(Residual, 7,  align = "right", fill = NA),
+    res_30d = zoo::rollmean(Residual, 30, align = "right", fill = NA)
+  ) %>% dplyr::ungroup()
+
+ggplot2::ggplot(residuals_long, ggplot2::aes(x = date)) +
+  ggplot2::geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  ggplot2::geom_line(ggplot2::aes(y = Residual), colour = "grey35", linewidth = 0.3, alpha = 0.85, na.rm = TRUE) +
+  ggplot2::geom_line(ggplot2::aes(y = res_7d,  colour = "7-day mean"),  linewidth = 0.9, na.rm = TRUE) +
+  ggplot2::geom_line(ggplot2::aes(y = res_30d, colour = "30-day mean"), linewidth = 0.9, alpha = 0.85, na.rm = TRUE) +
+  ggplot2::scale_colour_manual(NULL, values = c("7-day mean"="#1f78b4","30-day mean"="#33a02c")) +
+  ggplot2::facet_grid(Dataset ~ Model, scales = "free_y") +
+  ggplot2::labs(title = "Residuals Over Time — TRAIN and TEST",
+       subtitle = "Grey: residual; Bold: 7-day (darker) and 30-day (lighter) rolling means",
+       x = NULL, y = "Residual (MW)") +
+  ggplot2::theme_minimal(base_size = 12) +
+  ggplot2::theme(legend.position = "top")
+
+# ---- 7) Ljung–Box (TEST) ---------------------------------------------------
+res_map <- list(
+  "Tmax/Tmin (season)"                   = res_A$residuals$test,
+  "Tmean_pca/Trange_pca (season)"        = res_B$residuals$test,
+  "Tmax/Tmin (local_season)"             = res_C$residuals$test,
+  "Tmean_pca/Trange_pca (local_season)"  = res_D$residuals$test,
+  "Tmax/Tmin (month)"                    = res_E$residuals$test,
+  "Tmean_pca/Trange_pca (month)"         = res_F$residuals$test
+)
+
+lb_tbl <- purrr::imap_dfr(res_map, function(e, lbl) {
+  if (is.null(e)) dplyr::tibble(Model = lbl, LB14_p = NA_real_, LB28_p = NA_real_)
+  else {
+    lb14 <- Box.test(e, lag = 14, type = "Ljung")
+    lb28 <- Box.test(e, lag = 28, type = "Ljung")
+    dplyr::tibble(Model = lbl, LB14_p = lb14$p.value, LB28_p = lb28$p.value)
+  }
+}) %>%
+  dplyr::mutate(
+    `LB14 pass?` = dplyr::if_else(!is.na(LB14_p) & LB14_p > 0.05, "Yes", "No"),
+    `LB28 pass?` = dplyr::if_else(!is.na(LB28_p) & LB28_p > 0.05, "Yes", "No")
+  )
+
+model_metrics_test <- model_metrics %>%
+  dplyr::filter(Dataset == "TEST") %>%
+  dplyr::left_join(lb_tbl, by = "Model") %>%
+  dplyr::select(Model, Dataset, R2, RMSE, MAPE, `LB14 pass?`, `LB28 pass?`) %>%
+  dplyr::arrange(dplyr::desc(R2))
+
+knitr::kable(
+  model_metrics_test, digits = 3,
+  caption = "Model Performance Comparison (TEST) — with Ljung–Box pass/fail"
+)
+
+mm_for_plot <- model_metrics_test %>%
+  dplyr::mutate(PassesLB = dplyr::if_else(`LB14 pass?` == "Yes" & `LB28 pass?` == "Yes", "Pass", "Fail"))
+
+ggplot2::ggplot(mm_for_plot, ggplot2::aes(x = reorder(Model, RMSE), y = RMSE, fill = PassesLB)) +
+  ggplot2::geom_col(alpha = 0.9) +
+  ggplot2::scale_fill_manual(values = c(Pass = "#1f78b4", Fail = "grey70")) +
+  ggplot2::coord_flip() +
+  ggplot2::labs(title = "Short-term Forecast Accuracy (TEST)",
+       subtitle = "Grey bars fail Ljung–Box at 5% (lag 14 or 28)",
+       x = NULL, y = "RMSE (MW)", fill = NULL) +
+  ggplot2::theme_minimal(base_size = 13)
+
+best_compliant <- model_metrics_test %>%
+  dplyr::filter(`LB14 pass?` == "Yes", `LB28 pass?` == "Yes") %>%
+  dplyr::arrange(RMSE) %>% dplyr::slice(1)
+best_compliant_model <- best_compliant$Model
+best_compliant_model
+
+```
+
+
+Across the tested configurations, model performance was consistently strong (R² ≈ 0.93–0.94, MAPE ≈ 3 %), but subtle differences reveal important structural effects. Seasonal models using raw temperature features (Tmax/Tmin) achieved the best overall accuracy (R² = 0.938, RMSE = 4669), yet they failed both Ljung–Box tests, indicating residual autocorrelation and incomplete temporal structure capture. In contrast, local-season models based on PCA-derived temperature metrics (Tmean_pca/Trange_pca) achieved slightly lower accuracy (R² = 0.936, RMSE ≈ 4743) but passed both Ljung–Box tests, suggesting better independence of residuals and more robust temporal modelling. Month-based variants performed similarly but lacked residual independence. Overall, the local-season formulation provides the best trade-off between predictive accuracy and statistical adequacy, supporting its use for subsequent model refinement and forecasting.
+
+### Focus on best model: Tmean_pca/Trange_pca (local_season)
+Why Tmean_pca + Trange_pca? They separately capture the level of thermal load and the intra-day spread (clear-sky days often have large Trange_pca and high solar). The smooths + interactions let the GAM learn threshold-like shapes without manually defining HDD/CDD.
+```{r cache=TRUE}
+# ============================
+# BEST MODEL DIAGNOSTICS — TEST
+# Model: Tmean_pca/Trange_pca (local_season)
+# ============================
+
+# 0) Pick the best model object 
+best_model <- m_D 
+
+# 1) Predict on TEST and build residuals
+diag_test <- testing_data %>%
+  mutate(
+    pred  = as.numeric(predict(best_model, newdata = ., type = "response")),
+    resid = demand - pred,
+    fitted = pred
+  )
+
+# 2) Residuals over time (with 7d/30d rolling means)
+res_time <- diag_test %>%
+  arrange(date) %>%
+  mutate(
+    res_7d  = zoo::rollmean(resid, 7,  align = "right", fill = NA),
+    res_30d = zoo::rollmean(resid, 30, align = "right", fill = NA)
+  )
+
+p_res_time <- ggplot(res_time, aes(date)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_line(aes(y = resid), colour = "grey45", linewidth = 0.35, alpha = 0.9) +
+  geom_line(aes(y = res_7d,  colour = "7-day mean"),  linewidth = 0.9, na.rm = TRUE) +
+  geom_line(aes(y = res_30d, colour = "30-day mean"), linewidth = 0.9, na.rm = TRUE, alpha = 0.9) +
+  scale_colour_manual(NULL, values = c("7-day mean" = "#1f78b4", "30-day mean" = "#33a02c")) +
+  labs(title = "Residuals Over Time — TEST (Tmean_pca/Trange_pca + local_season)",
+       x = NULL, y = "Residual (MW)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+print(p_res_time)
+
+# 3) Residuals vs variables (raw relationships)
+p_fit <- ggplot(diag_test, aes(fitted, resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey65") +
+  geom_point(alpha = 0.3, size = 0.7, colour = "grey35") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#1f78b4", linewidth = 0.9) +
+  labs(title = "Residuals vs Fitted", x = "Fitted (Ŷ)", y = "Residual (Y−Ŷ)") +
+  theme_minimal(base_size = 12)
+
+p_Tmean_pca <- ggplot(diag_test, aes(Tmean_pca, resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey65") +
+  geom_point(alpha = 0.3, size = 0.7, colour = "grey35") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#33a02c", linewidth = 0.9) +
+  labs(title = "Residuals vs Tmean_pca", x = "Tmean_pca", y = NULL) +
+  theme_minimal(base_size = 12)
+
+p_Trange_pca <- ggplot(diag_test, aes(Trange_pca, resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey65") +
+  geom_point(alpha = 0.3, size = 0.7, colour = "grey35") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#33a02c", linewidth = 0.9) +
+  labs(title = "Residuals vs Trange_pca", x = "Trange_pca", y = NULL) +
+  theme_minimal(base_size = 12)
+
+p_pv <- ggplot(diag_test, aes(solar_pca, resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey65") +
+  geom_point(alpha = 0.3, size = 0.7, colour = "grey35") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#e31a1c", linewidth = 0.9) +
+  labs(title = "Residuals vs solar_pca", x = "solar_pca", y = NULL) +
+  theme_minimal(base_size = 12)
+
+p_dow <- ggplot(diag_test, aes(dow, resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey65") +
+  geom_boxplot(fill = "#a6cee3", outlier.alpha = 0.4) +
+  labs(title = "Residuals by Day of Week", x = "DOW", y = "Residual (MW)") +
+  theme_minimal(base_size = 12)
+
+p_lseason <- ggplot(diag_test, aes(local_season, resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey65") +
+  geom_boxplot(fill = "#b2df8a", outlier.alpha = 0.4) +
+  labs(title = "Residuals by Local Season", x = "Local Season", y = "Residual (MW)") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+p_doy <- ggplot(diag_test, aes(doy, resid)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey65") +
+  geom_point(alpha = 0.25, size = 0.6, colour = "grey35") +
+  geom_smooth(method = "gam", formula = y ~ s(x, bs = "cc", k = 12), se = FALSE,
+              colour = "#6a3d9a", linewidth = 1.0) +
+  labs(title = "Residuals vs Day-of-Year", x = "DOY", y = NULL) +
+  theme_minimal(base_size = 12)
+
+# Print the residual-vs-variable panels
+print(p_fit)
+print(p_Tmean_pca + p_Trange_pca)
+print(p_pv)
+print(p_dow + p_lseason)
+print(p_doy)
+
+# Combine all residual diagnostic plots
+final_resid_plot <- (
+  p_fit /
+  (p_Tmean_pca + p_Trange_pca + p_pv) /
+  (p_dow + p_lseason)
+) +
+  plot_annotation(
+    title = "Residual Diagnostics — GAM",
+    subtitle = "Variance residuals (TRAIN set): checking bias and remaining heteroskedasticity",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 11)
+    )
+  )
+
+# Display the combined figure
+final_resid_plot
+
+# Optional: Save with original size and high resolution
+ggsave(
+  filename = "picture/final_resid_plot.png",
+  plot = final_resid_plot,
+  width = 10, height = 6, dpi = 300
+)
+
+# 4) ACF & PACF for TEST residuals
+par(mfrow = c(1,2))
+acf(diag_test$resid,  main = "ACF — TEST residuals (best model)")
+pacf(diag_test$resid, main = "PACF — TEST residuals (best model)")
+par(mfrow = c(1,1))
+
+# 5) Ljung–Box tests (choose lag to taste)
+lb14 <- Box.test(diag_test$resid, lag = 14, type = "Ljung-Box")
+lb28 <- Box.test(diag_test$resid, lag = 28, type = "Ljung-Box")
+cat(sprintf("\nLjung–Box (lag 14): X^2=%.3f, p=%.4g\n", lb14$statistic, lb14$p.value))
+cat(sprintf("Ljung–Box (lag 28): X^2=%.3f, p=%.4g\n\n", lb28$statistic, lb28$p.value))
+
+# 6) Quick accuracy recap on TEST
+RMSE <- sqrt(mean(diag_test$resid^2, na.rm = TRUE))
+MAPE <- mean(abs(diag_test$resid / pmax(1e-6, diag_test$demand)), na.rm = TRUE) * 100
+R2   <- cor(diag_test$demand, diag_test$pred, use = "complete.obs")^2
+c(RMSE = RMSE, MAPE = MAPE, R2 = R2)
+
+```
+
+The U-shaped residual curves against mean and range of temperature indicate that the model slightly underestimates demand at both low and high temperatures — a common sign of nonlinear HVAC sensitivity, where heating and cooling loads dominate energy use in extreme weather.
+
+Additionally, positive residuals in winter show that the model consistently under-predicts winter demand, suggesting it does not yet fully capture the weaker rooftop-PV offset and stronger heating sensitivity during cold, cloudy periods. Seasonal residual variation also supports this: winter errors are biased upward, while spring and summer show better centering around zero.
+
+Overall, while the model fits well statistically, further refinement could involve season-specific temperature effects or PV–temperature interactions to better represent winter heating loads and solar generation limits.GAM to learn that rooftop-PV reduces demand far less in winter and that heating sensitivity is different.
+
+Residual Diagnostics:
+Residuals are well-centered across weekdays, showing no strong day-of-week bias. However, local-season patterns reveal higher residuals during cold, cloudy winters and lower during mild spring periods, confirming that winter demand remains under-predicted. This suggests the model could benefit from refining seasonal heating effects and accounting for weaker PV impact under low-solar conditions.
+
+## 5.4 Justification for Using GAMM with Variance Structure (varIdent):
+
+The residual diagnostics from the GAM model reveal heteroskedasticity, where residual spread varies across seasons and temperature ranges. Specifically, winter and extreme-temperature days show larger residual variance, while mild or sunny seasons have tighter distributions. This violates the GAM assumption of constant variance.
+
+To address this, a GAMM (Generalized Additive Mixed Model) with a variance function structure — weights = varIdent(form = ~1 | local_season) — allows residual variance to differ by local season. This explicitly models heteroskedasticity, yielding more reliable standard errors and smoother residual behavior across conditions.
+
+```{r cache=TRUE}
+vf <- varIdent(form = ~ 1 | local_season)
+
+m_gamm <- gamm(
+  demand ~ t + t_sin + t_cos +
+    s(Tmean_pca,  by = local_season, k = 10) +
+    s(Trange_pca, by = local_season, k = 8) +
+    s(solar_pca, by= local_season)++
+    ti(Tmean_pca, Trange_pca) +
+    ti(Tmean_pca, solar_pca) +
+    ti(Trange_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + local_season + is_holiday+demand_lag1 + demand_lag7,
+  data = training_data,
+  weights = vf
+)
+# ────────────────────────────────────────────────────────────────
+#  Standardized residuals by covariates  (for GAMM)
+# ────────────────────────────────────────────────────────────────
+# Extract standardized (normalized) residuals from lme
+training_data$resid_std <- resid(m_gamm$lme, type = "normalized")
+training_data$fitted    <- fitted(m_gamm$lme)
+
+p_fit_std <- ggplot(training_data, aes(fitted, resid_std)) +
+  geom_hline(yintercept = 0, colour = "grey60", linetype = "dashed") +
+  geom_point(alpha = 0.35, size = 0.6, colour = "grey20") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#1f78b4", linewidth = 0.8) +
+  labs(title = "Standardized Residuals vs Fitted",
+       x = "Fitted (Ŷ)", y = "Standardized Residuals") +
+  theme_minimal(base_size = 11)
+
+p_Tmean_pca_std <- ggplot(training_data, aes(Tmean_pca, resid_std)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_point(alpha = 0.35, size = 0.6, colour = "grey20") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#33a02c", linewidth = 0.8) +
+  labs(title = "vs Tmean_pca", x = "Tmean_pca", y = NULL) +
+  theme_minimal(base_size = 11)
+
+p_Trange_pca_std <- ggplot(training_data, aes(Trange_pca, resid_std)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_point(alpha = 0.35, size = 0.6, colour = "grey20") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#33a02c", linewidth = 0.8) +
+  labs(title = "vs Trange_pca", x = "Trange_pca", y = NULL) +
+  theme_minimal(base_size = 11)
+
+p_solar_std <- ggplot(training_data, aes(solar_pca, resid_std)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_point(alpha = 0.35, size = 0.6, colour = "grey20") +
+  geom_smooth(method = "loess", se = FALSE, colour = "#e31a1c", linewidth = 0.8) +
+  labs(title = "vs solar_pca", x = "solar_pca", y = NULL) +
+  theme_minimal(base_size = 11)
+
+p_dow_std <- ggplot(training_data, aes(dow, resid_std)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_boxplot(outlier.alpha = 0.4, fill = "#a6cee3") +
+  labs(title = "Std. Residuals by Day of Week", x = "Day", y = "Standardized Residuals") +
+  theme_minimal(base_size = 11)
+
+p_loc_std <- ggplot(training_data, aes(local_season, resid_std)) +
+  geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+  geom_boxplot(outlier.alpha = 0.4, fill = "#b2df8a") +
+  labs(title = "Std. Residuals by Local Season", x = "Local Season", y = "Standardized Residuals") +
+  theme_minimal(base_size = 11) +
+  theme(axis.text.x = element_text(angle = 18, hjust = 1))
+
+# Combine in patchwork grid
+final_stdresid_plot <- (
+  p_fit_std /
+  (p_Tmean_pca_std + p_Trange_pca_std + p_solar_std) /
+  (p_dow_std + p_loc_std)
+) +
+  plot_annotation(
+    title = "Standardized Residual Diagnostics — GAMM",
+    subtitle = "Variance-adjusted residuals (TRAIN set): checking bias and remaining heteroskedasticity",
+    theme = theme(
+      plot.title = element_text(size = 14, face = "bold"),
+      plot.subtitle = element_text(size = 11)
+    )
+  )
+
+final_stdresid_plot
+
+ggsave(
+  filename = "picture/final_stdresid_plot.png",
+  plot = final_stdresid_plot,
+  width = 10, height = 6, dpi = 300
+)
+# ================================================================
+# Forecast vs Actual — using testing_data only (GAMM)
+# ================================================================
+# 1) Predict on TEST
+testing_data$pred <- as.numeric(predict(m_gamm$gam, newdata = testing_data, type = "response"))
+
+# 2) Metrics
+rmse <- sqrt(mean((testing_data$demand - testing_data$pred)^2, na.rm = TRUE))
+mape <- mean(abs((testing_data$demand - testing_data$pred) /
+                 pmax(1e-6, testing_data$demand)), na.rm = TRUE) * 100
+r2   <- cor(testing_data$demand, testing_data$pred, use = "complete.obs")^2
+
+# 3) Forecast vs Actual plot
+p_forecast <- ggplot(testing_data, aes(x = date)) +
+  geom_line(aes(y = demand, colour = "Actual"), linewidth = 0.7) +
+  geom_line(aes(y = pred,   colour = "GAMM forecast"), linewidth = 0.9) +
+  scale_colour_manual(values = c("Actual" = "black", "GAMM forecast" = "#1f78b4"), name = NULL) +
+  labs(
+    title = "Actual vs Forecast — GAMM (TEST set)",
+    subtitle = sprintf("RMSE = %.0f  |  MAPE = %.2f%%  |  R² = %.3f", rmse, mape, r2),
+    x = NULL, y = "Demand (MW)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "top")
+p_forecast
+# ================================================================
+# Standardize TEST residuals using varIdent multipliers from GAMM
+# ================================================================
+# Raw residuals
+testing_data$resid <- testing_data$demand - testing_data$pred
+
+# Build season multipliers (relative SDs) from varIdent
+vstruct <- m_gamm$lme$modelStruct$varStruct
+levs    <- levels(training_data$local_season)
+mult    <- setNames(rep(1, length(levs)), levs)                  # base level = 1
+coefs   <- coef(vstruct)                                         # named multipliers for non-base groups
+mult[names(coefs)] <- coefs
+
+# Align factor levels
+testing_data$local_season <- factor(testing_data$local_season, levels = levs)
+
+# Standardized residuals for TEST
+testing_data$resid_std <- testing_data$resid / mult[as.character(testing_data$local_season)]
+res_ok <- testing_data$resid_std
+res_ok <- res_ok[is.finite(res_ok)]  # drop NA/Inf for tests/plots
+# ================================================================
+# ACF/PACF & Ljung–Box on standardized TEST residuals
+# ================================================================
+# Use forecast::ggAcf/ggPacf if available; otherwise base acf/pacf
+if (requireNamespace("forecast", quietly = TRUE)) {
+  library(forecast)
+  p_acf  <- ggAcf(res_ok,  lag.max = 28) + ggtitle("ACF — TEST std. residuals")  + theme_minimal(base_size = 12)
+  p_pacf <- ggPacf(res_ok, lag.max = 28) + ggtitle("PACF — TEST std. residuals") + theme_minimal(base_size = 12)
+  print(p_acf); print(p_pacf)
+} else {
+  par(mfrow = c(1,2))
+  acf(res_ok,  lag.max = 28, na.action = na.pass, main = "ACF — TEST std. residuals")
+  pacf(res_ok, lag.max = 28, na.action = na.pass, main = "PACF — TEST std. residuals")
+  par(mfrow = c(1,1))
+}
+
+lb14 <- Box.test(res_ok, lag = 14, type = "Ljung-Box")
+lb28 <- Box.test(res_ok, lag = 28, type = "Ljung-Box")
+cat(sprintf("\nLjung–Box (lag 14): X^2=%.3f, p=%.4g\n", lb14$statistic, lb14$p.value))
+cat(sprintf("Ljung–Box (lag 28): X^2=%.3f, p=%.4g\n\n", lb28$statistic, lb28$p.value))
+
+# 5) Combine into one panel (top: forecast; bottom: ACF | PACF)
+combined_panel <- (
+  p_forecast /
+  (p_acf + p_pacf)
+) + plot_layout(heights = c(2, 1)) +
+  plot_annotation(
+    title = "GAMM Forecast & Residual Diagnostics (TEST)",
+    theme = theme(plot.title = element_text(face = "bold"))
+  )
+
+combined_panel
+
+# Optional: save
+ggsave("picture/gamm_forecast_diagnostics.png", combined_panel, width = 11, height = 7, dpi = 300)
+
+# ======================================================
+# One-Panel GAMM Forecast + Residual Diagnostics + Ljung–Box
+# ======================================================
+# --- Predict on TEST (GAMM) ---
+testing_data$pred <- as.numeric(predict(m_gamm$gam, newdata = testing_data, type = "response"))
+
+# --- Metrics ---
+rmse <- sqrt(mean((testing_data$demand - testing_data$pred)^2, na.rm = TRUE))
+mape <- mean(abs((testing_data$demand - testing_data$pred) / pmax(1e-6, testing_data$demand)), na.rm = TRUE) * 100
+r2   <- cor(testing_data$demand, testing_data$pred, use = "complete.obs")^2
+
+# --- Forecast vs Actual plot ---
+p_forecast <- ggplot(testing_data, aes(x = date)) +
+  geom_line(aes(y = demand, colour = "Actual"), linewidth = 0.7) +
+  geom_line(aes(y = pred,   colour = "GAMM forecast"), linewidth = 0.9) +
+  scale_colour_manual(values = c("Actual" = "black", "GAMM forecast" = "#1f78b4"), name = NULL) +
+  labs(
+    title = "Actual vs Forecast — GAMM (TEST)",
+    subtitle = sprintf("RMSE = %.0f  |  MAPE = %.2f%%  |  R² = %.3f", rmse, mape, r2),
+    x = NULL, y = "Demand (MW)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "top")
+
+# --- Standardized residuals (using varIdent multipliers) ---
+testing_data$resid <- testing_data$demand - testing_data$pred
+vstruct <- m_gamm$lme$modelStruct$varStruct
+levs <- levels(training_data$local_season)
+mult <- setNames(rep(1, length(levs)), levs)
+coefs <- coef(vstruct)
+mult[names(coefs)] <- coefs
+testing_data$local_season <- factor(testing_data$local_season, levels = levs)
+testing_data$resid_std <- testing_data$resid / mult[as.character(testing_data$local_season)]
+res_ok <- testing_data$resid_std[is.finite(testing_data$resid_std)]
+
+# --- ACF & PACF helper plots ---
+acf_plot <- function(x, max_lag = 28, title = "ACF") {
+  a <- acf(x, lag.max = max_lag, plot = FALSE)
+  n <- sum(!is.na(x))
+  ci <- qnorm(0.975) / sqrt(n)
+  df <- data.frame(lag = a$lag[-1], acf = a$acf[-1])
+  ggplot(df, aes(lag, acf)) +
+    geom_hline(yintercept = 0, colour = "grey50") +
+    geom_hline(yintercept = c(-ci, ci), linetype = "dashed", colour = "#2c7fb8") +
+    geom_segment(aes(xend = lag, y = 0, yend = acf)) +
+    labs(title = title, x = "Lag", y = NULL) +
+    theme_minimal(base_size = 12)
+}
+
+pacf_plot <- function(x, max_lag = 28, title = "PACF") {
+  p <- pacf(x, lag.max = max_lag, plot = FALSE)
+  n <- sum(!is.na(x))
+  ci <- qnorm(0.975) / sqrt(n)
+  df <- data.frame(lag = seq_along(p$acf), pacf = p$acf)
+  ggplot(df, aes(lag, pacf)) +
+    geom_hline(yintercept = 0, colour = "grey50") +
+    geom_hline(yintercept = c(-ci, ci), linetype = "dashed", colour = "#2c7fb8") +
+    geom_segment(aes(xend = lag, y = 0, yend = pacf)) +
+    labs(title = title, x = "Lag", y = NULL) +
+    theme_minimal(base_size = 12)
+}
+
+p_acf  <- acf_plot(res_ok, 28, "ACF — TEST std. residuals")
+p_pacf <- pacf_plot(res_ok, 28, "PACF — TEST std. residuals")
+
+# --- Ljung–Box tests ---
+lb14 <- Box.test(res_ok, lag = 14, type = "Ljung-Box")
+lb28 <- Box.test(res_ok, lag = 28, type = "Ljung-Box")
+
+lb_text <- sprintf(
+  "Ljung–Box (lag 14): χ² = %.2f, p = %.4f\nLjung–Box (lag 28): χ² = %.2f, p = %.4f",
+  lb14$statistic, lb14$p.value, lb28$statistic, lb28$p.value
+)
+
+# --- Combine everything into one annotated panel ---
+combined_panel <- (
+  p_forecast /
+  (p_acf + p_pacf)
+) +
+  plot_layout(heights = c(2, 1)) +
+  plot_annotation(
+    title = "GAMM Forecast & Residual Diagnostics (TEST set)",
+    subtitle = lb_text,
+    theme = theme(
+      plot.title = element_text(size = 15, face = "bold"),
+      plot.subtitle = element_text(size = 11, family = "mono")
+    )
+  )
+
+combined_panel
+
+# --- Optional save for slides ---
+ggsave("picture/gamm_forecast_diagnostics_lb.png", combined_panel, width = 11, height = 7, dpi = 300)
+
+```
+The varIdent structure models, rather than removes, heteroskedasticity by assigning separate residual variances to each local season. While raw residuals still vary by season, the standardized residuals—scaled by each group’s estimated σ—show consistent spread across predictors, confirming that the GAMM appropriately captures season-dependent variance patterns.
+## 5.5 keep training fixed (2019-07-01 → 2024-06-30), simulate one leakage-free path over the entire test period (2024-07-01 → 2025-06-30), and then compute metrics for different testing spans (first week / two weeks / month / full year) without refitting. This evaluates all horizons (3, 7, 14, 30 days) inside each span.
+
+```{r}
+library(rsample)
+library(dplyr)
+library(purrr)
+library(lubridate)
+
+# Use one post-shift dataset (same features you used for m_gamm),
+# e.g. everything >= 2019-07-01 so splits start in the stable regime.
+full_data <- dat_lag %>%
+  arrange(date) %>%
+  filter(date >= as.Date("2019-07-01"))
+
+# Rolling origin (expanding training) with monthly assessments, for example:
+# assess = 30  -> ~30-day test window per fold
+# skip   = 30  -> move one month forward each fold
+splits <- rolling_origin(
+  data       = full_data,
+  initial    = as.integer(365 * 3),  # ~3 years to start (adjust if you want)
+  assess     = 30,                   # horizon per fold (7/30/90 etc.)
+  skip       = 30,                   # step between folds
+  cumulative = TRUE                  # expanding training window
+)
+length(splits$splits)
+
+library(mgcv)
+library(nlme)
+
+vf <- varIdent(form = ~ 1 | local_season)
+
+fit_gamm <- function(train_df) {
+  gamm(
+    demand ~ t + t_sin + t_cos +
+      s(Tmean_pca,  by = local_season, k = 10) +
+      s(Trange_pca, by = local_season, k = 8)  +
+      s(solar_pca,  by = local_season, k = 8)  +
+      ti(Tmean_pca, Trange_pca) +
+      ti(Tmean_pca, solar_pca) +
+      ti(Trange_pca, solar_pca) +
+      s(doy, bs = "cc", k = 24) +
+      dow + local_season + is_holiday +
+      demand_lag1 + demand_lag7,
+    data    = train_df,
+    weights = vf,
+    method  = "REML"   # mgcv::gamm uses nlme::lme; REML is typical here
+  )
+}
+
+# metrics (same definitions you used)
+rmse  <- function(a, p) sqrt(mean((a - p)^2, na.rm = TRUE))
+mape  <- function(a, p, eps = 1e-6) mean(abs((a - p) / pmax(abs(a), eps)), na.rm = TRUE) * 100
+r2_os <- function(y, yhat, ybar) 1 - sum((y - yhat)^2, na.rm = TRUE) / sum((y - ybar)^2, na.rm = TRUE)
+score_one_split <- function(s) {
+  train <- analysis(s)
+  test  <- assessment(s)
+
+  # Align factor levels (important for by= terms and varIdent)
+  test <- test %>%
+    mutate(
+      dow          = factor(dow,          levels = levels(train$dow),          ordered = is.ordered(train$dow)),
+      month        = factor(month,        levels = levels(train$month),        ordered = is.ordered(train$month)),
+      season       = factor(season,       levels = levels(train$season)),
+      local_season = factor(local_season, levels = levels(train$local_season))
+    )
+
+  # Fit GAMM on TRAIN
+  mod <- fit_gamm(train)
+
+  # Predict on TEST using the GAM component
+  yhat <- as.numeric(predict(mod$gam, newdata = test, type = "response"))
+
+  # Metrics (report test vs train mean for out-of-sample R2, as in your code)
+  tibble::tibble(
+    start_test = min(test$date), end_test = max(test$date),
+    n_test = nrow(test),
+    RMSE   = rmse(test$demand, yhat),
+    MAPE   = mape(test$demand, yhat),
+    R2     = r2_os(test$demand, yhat, mean(train$demand))
+  )
+}
+
+tscv_metrics <- map_dfr(splits$splits, score_one_split)
+tscv_metrics
+tscv_summary <- tscv_metrics %>%
+  summarise(
+    folds = n(),
+    RMSE_mean = mean(RMSE),  RMSE_med = median(RMSE),
+    MAPE_mean = mean(MAPE),  MAPE_med = median(MAPE),
+    R2_mean   = mean(R2),    R2_med   = median(R2)
+  )
+tscv_summary
+
+```
+
+
+```{r}
+
+# ────────────────────────────────────────────────────────────────
+# 1. Fit GAMM once (on training data)
+# ────────────────────────────────────────────────────────────────
+vf <- varIdent(form = ~ 1 | local_season)
+
+m_gamm <- gamm(
+  demand ~ t + t_sin + t_cos +
+    s(Tmean_pca,  by = local_season, k = 10) +
+    s(Trange_pca, by = local_season, k = 8)  +
+    s(solar_pca,  by = local_season) +
+    ti(Tmean_pca, Trange_pca) +
+    ti(Tmean_pca, solar_pca) +
+    ti(Trange_pca, solar_pca) +
+    s(doy, bs = "cc", k = 24) +
+    dow + local_season + is_holiday +
+    demand_lag1 + demand_lag7,
+  data   = training_data,
+  weights = vf,
+  knots  = list(doy = c(0.5, 366.5))
+)
+
+# ────────────────────────────────────────────────────────────────
+# 2. Define helper for h-step recursive prediction
+# ────────────────────────────────────────────────────────────────
+predict_horizon <- function(h) {
+  dat_te <- testing_data
+  dat_tr <- training_data |> select(date, demand)
+  all_hist <- bind_rows(dat_tr, dat_te |> mutate(demand = NA_real_))
+  
+  preds <- numeric(nrow(dat_te))
+  
+  for (i in seq_len(nrow(dat_te))) {
+    target_date <- dat_te$date[i]
+    pred_date   <- target_date + days(h)
+    
+    # Skip if pred_date not in test set
+    if (!(pred_date %in% dat_te$date)) next
+    
+    # Build newdata for pred_date
+    nd <- dat_te |> filter(date == pred_date)
+    
+    # Fill lag1 and lag7 from history/predictions
+    lag1_date <- pred_date - days(1)
+    lag7_date <- pred_date - days(7)
+    nd$demand_lag1 <- all_hist$demand[match(lag1_date, all_hist$date)]
+    nd$demand_lag7 <- all_hist$demand[match(lag7_date, all_hist$date)]
+    
+    # Predict
+    nd$pred <- as.numeric(predict(m_gamm$gam, newdata = nd, type = "response"))
+    
+    # Store in dat_te
+    dat_te$pred[dat_te$date == pred_date] <- nd$pred
+    all_hist$demand[match(pred_date, all_hist$date)] <- nd$pred
+  }
+  
+  # Compute metrics (only where both actual/pred exist)
+  eval <- dat_te |> 
+    filter(!is.na(pred)) |>
+    summarise(
+      Horizon = paste0(h, "-day"),
+      R2 = cor(demand, pred, use = "complete.obs")^2,
+      RMSE = sqrt(mean((demand - pred)^2, na.rm = TRUE)),
+      MAPE = mean(abs((demand - pred) / pmax(1e-6, demand)), na.rm = TRUE) * 100
+    )
+  eval
+}
+
+# ────────────────────────────────────────────────────────────────
+# 3. Run evaluation for multiple horizons
+# ────────────────────────────────────────────────────────────────
+horizons <- c(3, 7, 14, 30, 365)
+results <- lapply(horizons, predict_horizon) |> bind_rows()
+print(results)
+
+```
+Keeping the training window fixed (2019–2024) and recursively forecasting over 2024–2025, the GAMM maintained high short-term accuracy (MAPE ≈ 1.5 %-2.5% for 3 to 14-day horizons). Performance gradually degraded for month-ahead forecasts (MAPE ≈ 2.5-3.5 %), reflecting expected uncertainty accumulation. This confirms the model’s suitability for short-term operational forecasting within a one-year horizon.
+
+## 5.6 Forecasts after 2025-07-01 with GAMM and plots the result.
+```{r}
+# --- window to score ---
+start_dt <- as.Date("2025-07-01")
+end_dt   <- as.Date("2025-08-01")
+
+# 1) Seed: take last 7 days from training to provide lag values
+seed_tail <- training_data %>%
+  arrange(date) %>%
+  slice_tail(n = 7) %>%
+  select(date, demand, demand_lag1, demand_lag7)
+
+# 2) Future slice (with actuals for scoring)
+future_raw <- dat_lag %>%
+  filter(date >= start_dt, date <= end_dt) %>%
+  arrange(date)
+
+# 3) Bind seed + future, (re)compute lags from actual demand so there are no NAs
+work <- bind_rows(seed_tail %>% select(date, demand),
+                  future_raw %>% select(date, demand, everything())) %>%
+  arrange(date) %>%
+  mutate(
+    demand_lag1 = dplyr::lag(demand, 1),
+    demand_lag7 = dplyr::lag(demand, 7)
+  )
+
+# Align factors to training (prevents level mismatch)
+for (v in c("dow","season","local_season")) {
+  if (v %in% names(work) && v %in% names(training_data)) {
+    work[[v]] <- factor(work[[v]], levels = levels(training_data[[v]]),
+                        ordered = is.ordered(training_data[[v]]))
+  }
+}
+
+# 4) Predict with the GAM part of GAMM
+work$pred_gamm <- NA_real_
+work$pred_gamm[work$date >= start_dt & work$date <= end_dt] <-
+  as.numeric(predict(m_gamm$gam,
+                     newdata = work %>% filter(date >= start_dt, date <= end_dt),
+                     type = "response"))
+
+# 5) Score metrics on the window
+scored <- work %>% filter(date >= start_dt, date <= end_dt)
+
+# yardstick-style helpers in case rmse_vec/... not loaded
+rmse_vec <- function(truth, estimate) sqrt(mean((truth - estimate)^2, na.rm = TRUE))
+mae_vec  <- function(truth, estimate) mean(abs(truth - estimate), na.rm = TRUE)
+mape_vec <- function(truth, estimate, eps = 1e-8) mean(abs((truth - estimate)/pmax(abs(truth),eps)), na.rm=TRUE)*100
+rsq_vec  <- function(truth, estimate) cor(truth, estimate, use = "complete.obs")^2
+
+tibble(
+  RMSE = rmse_vec(scored$demand, scored$pred_gamm),
+  MAE  = mae_vec(scored$demand, scored$pred_gamm),
+  MAPE = mape_vec(scored$demand, scored$pred_gamm),
+  R2   = rsq_vec(scored$demand, scored$pred_gamm)
+)
+
+# 6) Plot: GAMM forecast vs actual
+ggplot(scored, aes(x = date)) +
+  geom_line(aes(y = demand,    colour = "Actual"),   linewidth = 0.8) +
+  geom_line(aes(y = pred_gamm, colour = "GAMM"),     linewidth = 0.8, linetype = "dashed") +
+  labs(
+    title  = "GAMM Forecast vs Actual (After 2025-07-01)",
+    x = NULL, y = "Electricity Demand (MW)", colour = NULL
+  ) +
+  scale_colour_manual(values = c("Actual" = "black", "GAMM" = "red")) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+
+# --- compute metrics ---
+metrics_tbl <- tibble(
+  RMSE = rmse_vec(scored$demand, scored$pred_gamm),
+  MAE  = mae_vec(scored$demand, scored$pred_gamm),
+  MAPE = mape_vec(scored$demand, scored$pred_gamm),
+  R2   = rsq_vec(scored$demand, scored$pred_gamm)
+) %>%
+  mutate(
+    RMSE = round(RMSE, 1),
+    MAE  = round(MAE, 1),
+    MAPE = paste0(round(MAPE, 2), "%"),
+    R2   = paste0(round(R2, 3)*100, "%")
+  )
+
+# --- plot 1: forecast vs actual ---
+p_for <- ggplot(scored, aes(x = date)) +
+  geom_line(aes(y = demand,    colour = "Actual"),   linewidth = 0.8) +
+  geom_line(aes(y = pred_gamm, colour = "GAMM"),     linewidth = 0.8, linetype = "dashed") +
+  labs(
+    title  = "GAMM Forecast vs Actual (From 2025-07-01 to 2025-08-05)",
+    x = NULL, y = "Electricity Demand (MW)", colour = NULL
+  ) +
+  scale_colour_manual(values = c("Actual" = "black", "GAMM" = "red")) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+
+# --- plot 2: metrics table as ggtexttable (from ggpubr) ---
+p_metrics <- ggtexttable(
+  metrics_tbl,
+  rows = NULL,
+  theme = ttheme("classic")
+)
+
+# --- combine both panels ---
+final_panel <- p_for / p_metrics + plot_layout(heights = c(3, 1))
+final_panel
+# Save the final combined plot (final_panel)
+ggsave(
+  filename = "picture/final_panel.png",   
+  plot = final_panel,                
+  width = 12,                         # in inches
+  height = 8,                         # in inches
+  dpi = 300,                          # high-resolution for reports
+  units = "in"
+)
+
+```
+The short-term forecast for the period 2025-07-01 to 2025-08-05 using the GAMM model demonstrates solid predictive performance. The model achieved an R² of 0.88, indicating that it explains nearly 88% of the variance in electricity demand during this evaluation window. The RMSE of 5434 MW and MAPE of 3.16% reflect a high level of accuracy, with average prediction errors remaining within a small margin relative to total system demand. Overall, the GAMM effectively captures short-term demand dynamics during this post-training period, maintaining both stability and precision in forecasting under recent weather and seasonal conditions.
+
+# 6. Results
+
+The model was upgraded from a GAM to a GAMM to account for seasonal heteroskedasticity in residuals. Using a variance structure (varIdent(~1 | local_season)), the GAMM allowed variance to differ by season while retaining nonlinear temperature, solar, and interaction effects. This improved residual stability and passed Ljung–Box tests (p > 0.05), confirming independence. The GAMM achieved strong accuracy (R² ≈ 0.94, RMSE ≈ 4.7 GW, MAPE ≈ 3.2%) and produced realistic, seasonally responsive forecasts beyond July 2025, demonstrating robustness for operational short-term demand forecasting.
+
+
+# 7. Discussion
+
+Electricity demand in Victoria shows clear nonlinear and regime-dependent responses to weather conditions, best captured through GAM-based models. The smooth terms flexibly represent varying sensitivities across temperature, solar exposure, and seasonal clusters. The rapid uptake of rooftop solar PV has structurally reshaped demand patterns—flattening midday loads and steepening evening ramps—altering the underlying weather–demand relationships. Incorporating these dynamics through local-season GAMM structures enables the model to more accurately capture modern demand behavior and improve forecast reliability across temperature extremes.
+
+# 8. Conclusion and limitations
+This study demonstrates that nonlinear GAMM models effectively capture the weather-dependent and seasonal variability of Victorian electricity demand. By modeling heteroskedasticity across local seasons and incorporating interaction effects between temperature and solar exposure, the model achieved strong predictive accuracy and realistic behavior under extreme conditions.
+
+However, several limitations remain. The models still exhibit some underfitting during winter, reflecting heteroskedasticity and greater variability in cold-weather demand. They also rely on recent historical data and assume known past demand for lagged predictors, which limits true multi-step forecasting without recursive updates. Moreover, accurate demand forecasting inherently depends on reliable future weather forecasts, and uncertainty in temperature and solar predictions can propagate into the demand forecasts themselves.
+
+Future improvements should therefore integrate weather forecast ensembles or stochastic weather scenarios to better reflect predictive uncertainty. In addition, incorporating regional PV output estimates, dynamic variance structures, and half-hourly modeling could enhance the model’s ability to capture intra-day dynamics and ramp rates. Integrating rooftop PV penetration and self-consumption data would better represent structural demand shifts, while hybrid time-series or machine-learning approaches could further enhance short-term adaptability and robustness.
+# 9. Reference 
+
+1.https://www.aemo.com.au/-/media/files/major-publications/qed/2025/qed-q2-2025.pdf?rev=8732b44ba628445da5883f92e84cd87d&sc_lang=en&hash=277EA9352147658D6A8F12ADABF5E812
+2. https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=5985500
+3.https://cer.gov.au/markets/reports-and-data/small-scale-installation-postcode-data#installation-numbers-for-small-scale-systems-by-state/territory
+4.https://reneweconomy.com.au/australias-electricity-market-has-always-been-weather-dependent-what-it-needs-is-visibility/
+5.https://energyinformatics.springeropen.com/articles/10.1186/s42162-023-00299-8
