@@ -1,8 +1,10 @@
-report_cache/
-report_files/
-
 .Rhistory
 .RData
 .Rproj.user/
 .Rproj
 .Ruserdata
+
+*_cache/
+*_files/
+report_cache/
+report_files/
