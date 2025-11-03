@@ -1,0 +1,8 @@
+report_cache/
+report_files/
+
+.Rhistory
+.RData
+.Rproj.user/
+.Rproj
+.Ruserdata
