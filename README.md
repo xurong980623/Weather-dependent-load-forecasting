@@ -36,7 +36,8 @@ This project develops a **data-driven forecasting framework** that:
 | **Input Data/** | Raw AEMO, BoM, and CER datasets  |
 | **Presentation/** | Quarto presentation slides |
 | **picture/** | Figures and visual outputs used in the report |
-| **report.qmd / report.html** | Main Quarto analysis and rendered report |
+| **report.qmd / report.html** | Main Quarto analysis file and rendered outputs|
+| **Modeling Weather-Dependent Electricity Demand in Victoria Using Generalized Additive Mixed Models (GAMMs).pdf** | Final polished report for submission and offline viewing. |
 | **original code and analysis.qmd** | Early version used for development and testing |
 | **Weather-dependent-load-forecasting.Rproj** | RStudio project file |
 | **references.bib** | Bibliography for citations |
