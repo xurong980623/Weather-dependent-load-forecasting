@@ -355,410 +355,299 @@ display: none;
 <div id="modeling-weather-dependent-electricity-demand-in-victoria-using-generalized-additive-mixed-models-gamms" class="section level1">
 <h1>Modeling Weather-Dependent Electricity Demand in Victoria Using
 Generalized Additive Mixed Models (GAMMs)</h1>
-<p>Welcome to the <strong>Weather-Dependent Load Forecasting</strong>
-repository. This project models and forecasts <strong>daily electricity
-demand in Victoria, Australia (2013–2025)</strong> by explicitly
-accounting for <strong>nonlinear weather effects</strong> and evolving
-rooftop PV impacts. The framework integrates <strong>AEMO
-demand</strong>, <strong>BoM weather</strong>, and <strong>CER rooftop
-PV</strong> data; unifies multi-station weather with
-<strong>PCA</strong>; defines <strong>data‑driven local seasons</strong>
-via <strong>GMM</strong>; and fits an interpretable
-<strong>GAMM</strong> to capture nonlinearities, seasonal regimes, and
-autocorrelation. The best model achieves <strong>R² ≈ 0.94</strong> and
-<strong>MAPE ≈ 3.28%</strong> out of sample.</p>
+<p>This repository contains the Quarto report, R code, and documentation
+for <strong>modeling and forecasting daily electricity demand in
+Victoria, Australia (2013–2025)</strong>.<br />
+The project integrates <strong>AEMO electricity demand</strong>,
+<strong>BoM weather</strong>, and <strong>CER rooftop PV</strong>
+data.<br />
+Using <strong>Principal Component Analysis (PCA)</strong>,
+<strong>Gaussian Mixture Models (GMM)</strong>, and <strong>Generalized
+Additive Mixed Models (GAMMs)</strong>, it builds a transparent,
+interpretable, and high-accuracy weather-dependent forecasting
+framework.<br />
+The final GAMM achieves <strong>R² ≈ 0.94</strong> and <strong>MAPE ≈
+3.28%</strong> on out-of-sample data.</p>
 <hr />
 <div id="authors-affiliations" class="section level2">
 <h2>👤 Authors &amp; Affiliations</h2>
 <ul>
-<li><strong>Rong Xu</strong> — Monash University<br />
+<li><strong>Rong Xu</strong> — Master of Business Analytics, Monash
+University<br />
 </li>
 <li><strong>Rachael E. Quill (Mentor)</strong> — State Electricity
 Commission Victoria</li>
 </ul>
-<p>Repository: <a href="https://github.com/xurong980623/Weather-dependent-load-forecasting" class="uri">https://github.com/xurong980623/Weather-dependent-load-forecasting</a></p>
+<p><strong>Repository:</strong> <a href="https://github.com/xurong980623/Weather-dependent-load-forecasting">github.com/xurong980623/Weather-dependent-load-forecasting</a></p>
 <hr />
 </div>
-<div id="license" class="section level2">
-<h2>License</h2>
-<p>This project is licensed under the <a href="./LICENSE">MIT
-License</a>.</p>
+<div id="project-overview" class="section level2">
+<h2>🧭 Project Overview</h2>
+<p>Electricity demand in Victoria has become increasingly
+<strong>weather-sensitive</strong> due to climate variability,
+electrification, and widespread <strong>rooftop PV
+adoption</strong>.<br />
+This project develops a <strong>data-driven forecasting
+framework</strong> that:</p>
+<ol style="list-style-type: decimal">
+<li><strong>Unifies weather data</strong> from multiple BoM stations
+using <strong>PCA</strong> (virtual weather station).<br />
+</li>
+<li><strong>Defines data-driven seasons</strong> with <strong>Gaussian
+Mixture Models (GMM)</strong> to identify meteorological regimes.<br />
+</li>
+<li><strong>Models nonlinear weather-demand relationships</strong> using
+a <strong>GAMM</strong>, capturing regime-specific variance and
+autocorrelation.</li>
+</ol>
+<p><strong>Goal:</strong> Provide interpretable, reliable, and scalable
+forecasts for operational energy planning and policy analysis.</p>
 <hr />
 </div>
 <div id="repository-structure" class="section level2">
 <h2>🗂 Repository Structure</h2>
 <table>
 <colgroup>
-<col width="27%" />
-<col width="72%" />
+<col width="53%" />
+<col width="46%" />
 </colgroup>
 <thead>
 <tr class="header">
-<th>Folder / File</th>
-<th>Purpose</th>
+<th align="left">Folder / File</th>
+<th align="left">Description</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td><strong>Input Data/</strong></td>
-<td>Raw input datasets (e.g., AEMO demand, BoM weather, CER PV
-data).</td>
+<td align="left"><strong>Input Data/</strong></td>
+<td align="left">Raw AEMO, BoM, and CER datasets</td>
 </tr>
 <tr class="even">
-<td><strong>report.qmd / report.html</strong></td>
-<td>Quarto analysis report.</td>
+<td align="left"><strong>Presentation/</strong></td>
+<td align="left">Quarto presentation slides</td>
 </tr>
 <tr class="odd">
-<td><strong>original code and analysis/</strong></td>
-<td>Exploratory or supplementary scripts.</td>
+<td align="left"><strong>picture/</strong></td>
+<td align="left">Figures and visual outputs used in the report</td>
 </tr>
 <tr class="even">
-<td><strong>Presentation/</strong></td>
-<td>Quarto presentation materials.</td>
+<td align="left"><strong>report.qmd / report.html</strong></td>
+<td align="left">Main Quarto analysis and rendered report</td>
 </tr>
 <tr class="odd">
-<td><strong>Weather-dependent-load-forecasting.Rproj</strong></td>
-<td>RStudio project file for reproducibility.</td>
+<td align="left"><strong>original code and analysis.qmd</strong></td>
+<td align="left">Early version used for development and testing</td>
 </tr>
 <tr class="even">
-<td><strong>report_cache/</strong>, <strong>report_files/</strong></td>
-<td>Quarto build outputs (auto-generated).</td>
+<td align="left"><strong>Weather-dependent-load-forecasting.Rproj</strong></td>
+<td align="left">RStudio project file</td>
 </tr>
 <tr class="odd">
-<td><strong>references.bib</strong></td>
-<td>BibTeX citation database.</td>
+<td align="left"><strong>references.bib</strong></td>
+<td align="left">Bibliography for citations</td>
 </tr>
 <tr class="even">
-<td><strong>README.md</strong></td>
-<td>Main documentation — already includes Abstract, Methodology,
-Reproducibility, and Dependencies.</td>
+<td align="left"><strong>README.md</strong></td>
+<td align="left">This documentation file</td>
 </tr>
 <tr class="odd">
-<td><strong>styles/</strong></td>
-<td>Custom CSS for Quarto slides styling.</td>
+<td align="left"><strong>LICENSE</strong></td>
+<td align="left">Project license (MIT License)</td>
+</tr>
+<tr class="even">
+<td align="left"><strong>.gitignore</strong></td>
+<td align="left">Excludes temporary and cache files</td>
 </tr>
 </tbody>
 </table>
 <hr />
 </div>
-<div id="project-overview" class="section level2">
-<h2>🧭 Project Overview</h2>
-<p>Accurate load forecasting is vital for <strong>planning, operations,
-and market efficiency</strong>. Victoria’s demand has become
-<strong>more weather‑sensitive</strong> due to climate variability and
-rapid <strong>rooftop PV</strong> adoption (post‑2019 Solar Homes
-Program). This project builds a <strong>transparent, adaptive</strong>
-framework that: 1) unifies multi‑station weather via
-<strong>PCA</strong> (virtual weather station),<br />
-2) segments regimes with <strong>GMM local seasons</strong>, and<br />
-3) models nonlinear effects using <strong>GAMM</strong> with
-regime‑specific variance.</p>
-<p><strong>Key outcome:</strong> Interpretable forecasts with
-industry‑grade accuracy (<strong>MAPE ≈ 3.28%, R² ≈ 0.94</strong>).</p>
-<hr />
-</div>
-<div id="data-sources-20130701-20250805" class="section level2">
-<h2>📦 Data Sources (2013‑07‑01 → 2025‑08‑05)</h2>
+<div id="data-sources-2013-07-01-2025-08-05" class="section level2">
+<h2>📦 Data Sources (2013-07-01 → 2025-08-05)</h2>
 <ul>
-<li><strong>AEMO</strong>: VIC1 Scheduled Demand (half‑hourly →
-aggregated to <strong>daily MWh</strong>).<br />
+<li><strong>AEMO</strong>: Half-hourly VIC1 Scheduled Demand (aggregated
+to daily MWh)<br />
 </li>
-<li><strong>BoM</strong>: Daily <strong>Tmax, Tmin, Solar exposure
-(MJ/m²)</strong> at <strong>Melbourne (OP), Morwell,
-Ballarat</strong>.<br />
-</li>
-<li><strong>CER</strong>: Postcode‑level <strong>rooftop PV capacity
-&amp; counts</strong> (aggregated to VIC).</li>
-</ul>
-<p><strong>Modeling window:</strong> <strong>2019‑07‑01 →
-2025‑06‑30</strong> (pre‑2019 used for context/EDA).</p>
-<hr />
-</div>
-<div id="methodology-endtoend" class="section level2">
-<h2>🧪 Methodology (end‑to‑end)</h2>
-<ol style="list-style-type: decimal">
-<li><strong>Integration &amp; QC</strong>: Align daily demand with BoM
-weather; interpolate rare missing weather days (&lt;1%) using
-<code>zoo::na.approx()</code>; validate ranges &amp; alignment.<br />
-</li>
-<li><strong>PCA weather fusion</strong>: Build regional indices
-<code>tmax_pca</code>, <code>tmin_pca</code>, <code>solar_pca</code>.
-<strong>PC1+PC2 explain ~87%</strong> of variance → stable,
-multicollinearity‑free inputs.<br />
-</li>
-<li><strong>Temperature indicators</strong>: Construct interpretable
-metrics:
+<li><strong>BoM</strong>: Daily <strong>Tmax</strong>,
+<strong>Tmin</strong>, and <strong>Solar Exposure (MJ/m²)</strong> from
 <ul>
-<li><code>Tmean_pca = (Tmax_pca + Tmin_pca)/2</code> (comfort)<br />
+<li>Melbourne (Olympic Park)<br />
 </li>
-<li><code>Trange_pca = Tmax_pca − Tmin_pca</code> (diurnal spread)<br />
+<li>Morwell (Latrobe Valley)<br />
 </li>
-<li><code>HDD = max(0, 16.5 − Tmean_pca)</code> (AEMO VIC)<br />
-</li>
-<li><code>CDD = max(0, Tmean_pca − 18.0)</code> (AEMO VIC)<br />
+<li>Ballarat (Aerodrome)<br />
 </li>
 </ul></li>
-<li><strong>Local seasons via GMM</strong> (<code>mclust</code>): 6
-weather regimes by BIC: <strong>Cold &amp; Clear, Cold &amp; Cloudy, Hot
-&amp; Very Sunny, Warm &amp; Bright, Mild &amp; Sunny, Mild &amp;
-Cloudy</strong>.<br />
-</li>
-<li><strong>GAM / GAMM modeling</strong> (<code>mgcv</code>): Nonlinear
-smooths &amp; tensor interactions by regime; calendar terms (DOY, DOW,
-holidays); lags (<code>D[t‑1]</code>, <code>D[t‑7]</code>);
-heteroskedasticity via
-<strong><code>varIdent(~1 | local_season)</code></strong>.<br />
-</li>
-<li><strong>Validation</strong>: Train <strong>2019‑07‑01 →
-2024‑06‑30</strong>; test <strong>2024‑07‑01 → 2025‑06‑30</strong>.
-Diagnostics (<code>gam.check</code>, Ljung–Box,
-<code>gratia::appraise</code>).<br />
-</li>
-<li><strong>Forecasts</strong>: Recursive h‑step; short‑ to medium‑term
-horizons (3d, 7d, 14d, 30d, 365d) and <strong>July 2025</strong>
-out‑of‑training evaluation.</li>
-</ol>
+<li><strong>CER</strong>: Postcode-level rooftop PV capacity and
+installations (aggregated to Victoria)</li>
+</ul>
+<p><strong>Modeling period:</strong> 2019-07-01 → 2025-06-30 (earlier
+data used for EDA and model calibration).</p>
 <hr />
 </div>
-<div id="model-grid-best-spec" class="section level2">
-<h2>🧰 Model Grid &amp; Best Spec</h2>
-<p><strong>Season groupings × Temperature constructions (9
-variants):</strong></p>
+<div id="methodology-step-by-step" class="section level2">
+<h2>🧪 Methodology (Step-by-Step)</h2>
+<p>1️⃣ <strong>Data Integration &amp; Cleaning</strong><br />
+- Merge AEMO demand and BoM weather data by date.<br />
+- Interpolate rare missing values (&lt;1%) with
+<code>zoo::na.approx()</code>.<br />
+- Validate data ranges and consistency.</p>
+<p>2️⃣ <strong>PCA Weather Fusion</strong><br />
+- Combine Tmax, Tmin, and Solar exposure into unified regional indices
+(<code>tmax_pca</code>, <code>tmin_pca</code>,
+<code>solar_pca</code>).<br />
+- PC1 + PC2 explain ~87% of total variance.</p>
+<p>3️⃣ <strong>Derived Temperature Indicators</strong><br />
+| Variable | Formula | Interpretation | |:–|:–|:–| | <code>Tmean</code>
+| (Tmax + Tmin) / 2 | Mean comfort temperature | | <code>Trange</code> |
+Tmax − Tmin | Diurnal temperature spread | | <code>HDD</code> | max(0,
+16.5 − Tmean) | Heating Degree Days | | <code>CDD</code> | max(0, Tmean
+− 18) | Cooling Degree Days |</p>
+<p>4️⃣ <strong>Local Seasons (GMM Clustering)</strong><br />
+- Cluster days by PCA weather features using <code>mclust</code> to form
+six meteorological regimes: <em>Cold &amp; Cloudy</em>, <em>Cold &amp;
+Clear</em>, <em>Hot &amp; Very Sunny</em>, <em>Warm &amp; Bright</em>,
+<em>Mild &amp; Sunny</em>, <em>Mild &amp; Cloudy</em>.</p>
+<p>5️⃣ <strong>Modeling with GAMM</strong></p>
+<pre class="r"><code>demand ~ t + t_sin + t_cos + local_season +
+         s(Tmean_pca, by = local_season) +
+         s(Trange_pca, by = local_season) +
+         s(solar_pca, by = local_season) +
+         ti(Tmean_pca, solar_pca) +
+         s(doy, bs = &quot;cc&quot;) + dow + is_holiday +
+         demand_lag1 + demand_lag7
+# GAMM includes variance structure: varIdent(~1 | local_season)</code></pre>
+<p>6️⃣ <strong>Validation &amp; Forecasting</strong><br />
+- Train (2019–2024), Test (2024–2025).<br />
+- Metrics: R², RMSE, MAPE, Ljung–Box.<br />
+- Recursive multi-horizon forecasts (3–365 days).</p>
+<hr />
+</div>
+<div id="model-performance-summary" class="section level2">
+<h2>📈 Model Performance Summary</h2>
 <table>
 <thead>
 <tr class="header">
-<th>ID</th>
-<th>Season grouping</th>
-<th>Temperature representation</th>
+<th align="center">Horizon</th>
+<th align="center">R²</th>
+<th align="center">RMSE (MWh)</th>
+<th align="center">MAPE (%)</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
-<td>01</td>
-<td>Month</td>
-<td>Tmin, Tmax</td>
+<td align="center">3-day</td>
+<td align="center">0.776</td>
+<td align="center">2605.0</td>
+<td align="center">1.68</td>
 </tr>
 <tr class="even">
-<td>02</td>
-<td>Month</td>
-<td>Tmean, Trange</td>
+<td align="center">7-day</td>
+<td align="center">0.932</td>
+<td align="center">4430.8</td>
+<td align="center">2.59</td>
 </tr>
 <tr class="odd">
-<td>03</td>
-<td>Month</td>
-<td>HDD, CDD</td>
+<td align="center">14-day</td>
+<td align="center">0.932</td>
+<td align="center">3572.6</td>
+<td align="center">1.96</td>
 </tr>
 <tr class="even">
-<td>04</td>
-<td>Traditional Season</td>
-<td>Tmin, Tmax</td>
+<td align="center">30-day</td>
+<td align="center">0.868</td>
+<td align="center">4609.8</td>
+<td align="center">2.51</td>
 </tr>
 <tr class="odd">
-<td>05</td>
-<td>Traditional Season</td>
-<td>Tmean, Trange</td>
-</tr>
-<tr class="even">
-<td>06</td>
-<td>Traditional Season</td>
-<td>HDD, CDD</td>
-</tr>
-<tr class="odd">
-<td>07</td>
-<td><strong>Local Season</strong></td>
-<td>Tmin, Tmax</td>
-</tr>
-<tr class="even">
-<td>08</td>
-<td><strong>Local Season</strong></td>
-<td><strong>Tmean, Trange</strong></td>
-</tr>
-<tr class="odd">
-<td>09</td>
-<td><strong>Local Season</strong></td>
-<td>HDD, CDD</td>
+<td align="center">365-day</td>
+<td align="center">0.939</td>
+<td align="center">4843.0</td>
+<td align="center">3.28</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Best trade‑off (accuracy + diagnostics):</strong>
-<strong>Local Season — Tmean/Trange (ID 08)</strong>.<br />
-- Typical formula sketch:<br />
-<code>r   demand ~ t + t_sin + t_cos + local_season +            s(Tmean_pca, by = local_season) +            s(Trange_pca, by = local_season) +            s(solar_pca, by = local_season) +            ti(Tmean_pca, Trange_pca) +            ti(Tmean_pca, solar_pca) +            ti(Trange_pca, solar_pca) +            s(doy, bs = &quot;cc&quot;) + dow + is_holiday +            demand_lag1 + demand_lag7   # In GAMM: weights = varIdent(~1 | local_season)</code></p>
+<p><strong>Highlights:</strong><br />
+- Short-term forecasts (≤14 days) achieve high accuracy.<br />
+- July 2025 out-of-sample: RMSE ≈ 5.5 GWh, MAPE ≈ 3.1%.<br />
+- Residuals pass Ljung–Box → no autocorrelation.</p>
 <hr />
 </div>
-<div id="results-holdout-20240701-20250630" class="section level2">
-<h2>📈 Results (hold‑out 2024‑07‑01 → 2025‑06‑30)</h2>
-<p><strong>Overall:</strong> <strong>R² ≈ 0.94</strong>, <strong>MAPE ≈
-3.28%</strong> (best GAMM with varIdent).<br />
-Representative <strong>test</strong> comparison (excerpt): | Model | R²
-| RMSE (MWh) | MAPE | LB14 | LB28 | Verdict | |—|—:|—:|—:|:–:|:–:|—| |
-07 Local — Tmin/Tmax | 0.932 | 4883.9 | 3.288 | ✅ | ✅ |
-<strong>Pass</strong> | | <strong>08 Local — Tmean/Trange</strong> |
-<strong>0.933</strong> | <strong>4865.4</strong> |
-<strong>3.294</strong> | ✅ | ✅ | <strong>Pass</strong> | | 09 Local —
-HDD/CDD | 0.933 | 4842.4 | 3.341 | ❌ | ✅ | Fail |</p>
-<p><strong>H‑step forecasts (test):</strong></p>
-<table>
-<thead>
-<tr class="header">
-<th>Horizon</th>
-<th align="right">R²</th>
-<th align="right">RMSE</th>
-<th align="right">MAPE</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td>3‑day</td>
-<td align="right">0.776</td>
-<td align="right">2605.0</td>
-<td align="right">1.68</td>
-</tr>
-<tr class="even">
-<td>7‑day</td>
-<td align="right">0.932</td>
-<td align="right">4430.8</td>
-<td align="right">2.59</td>
-</tr>
-<tr class="odd">
-<td>14‑day</td>
-<td align="right">0.932</td>
-<td align="right">3572.6</td>
-<td align="right">1.96</td>
-</tr>
-<tr class="even">
-<td>30‑day</td>
-<td align="right">0.868</td>
-<td align="right">4609.8</td>
-<td align="right">2.51</td>
-</tr>
-<tr class="odd">
-<td>365‑day</td>
-<td align="right">0.939</td>
-<td align="right">4843.0</td>
-<td align="right">3.28</td>
-</tr>
-</tbody>
-</table>
-<p><strong>July 2025</strong> (post‑training): RMSE ≈ <strong>5.5
-GWh</strong>, MAPE ≈ <strong>3.14%</strong>.</p>
-<hr />
-</div>
-<div id="reproducibility" class="section level2">
-<h2>🔁 Reproducibility</h2>
-<div id="dependencies" class="section level3">
-<h3>Dependencies</h3>
-<p>Install the following R packages (deduplicated from the project’s
-library block). For reproducibility, consider <code>renv::init()</code>
-after installing.</p>
-<pre class="r"><code># Core packages
-install.packages(c(
-  &quot;tidyverse&quot;,&quot;lubridate&quot;,&quot;tsibble&quot;,&quot;fabletools&quot;,&quot;feasts&quot;,&quot;forecast&quot;,&quot;broom&quot;,
-  &quot;mgcv&quot;,&quot;nlme&quot;,&quot;gratia&quot;,&quot;mclust&quot;,&quot;yardstick&quot;,
-  &quot;here&quot;,&quot;readxl&quot;,&quot;zoo&quot;,&quot;imputeTS&quot;,&quot;missRanger&quot;,&quot;stringr&quot;,&quot;forcats&quot;,
-  &quot;ggplot2&quot;,&quot;ggrepel&quot;,&quot;patchwork&quot;,&quot;ggpubr&quot;,&quot;gridExtra&quot;,&quot;kableExtra&quot;,&quot;gt&quot;,&quot;scales&quot;,&quot;RColorBrewer&quot;,&quot;latex2exp&quot;
-))
-
-# Optional (EDA/visualization/extras)
-install.packages(c(
-  &quot;plotly&quot;,&quot;gganimate&quot;,&quot;gifski&quot;,&quot;GGally&quot;,&quot;car&quot;,&quot;energy&quot;,&quot;fy&quot;,&quot;ragg&quot;,&quot;knitr&quot;,&quot;strucchange&quot;
-))</code></pre>
-</div>
+<div id="reproducibility-guide" class="section level2">
+<h2>⚙️ Reproducibility Guide</h2>
 <div id="requirements" class="section level3">
 <h3>Requirements</h3>
 <ul>
-<li><p><strong>R ≥ 4.5.1</strong> (tested)<br />
-</p></li>
-<li><p><strong>Quarto ≥ 1.4</strong><br />
-</p></li>
-<li><p>R packages:</p>
-<pre class="r"><code>install.packages(c(
-  &quot;tidyverse&quot;,&quot;lubridate&quot;,&quot;tsibble&quot;,&quot;fpp3&quot;,&quot;mgcv&quot;,&quot;gratia&quot;,
-  &quot;mclust&quot;,&quot;broom&quot;,&quot;patchwork&quot;,&quot;kableExtra&quot;,&quot;zoo&quot;
-))</code></pre></li>
+<li><strong>R ≥ 4.3</strong></li>
+<li><strong>Quarto ≥ 1.4</strong></li>
 </ul>
 </div>
-<div id="steps" class="section level3">
-<h3>Steps</h3>
-<pre class="bash"><code># 1) Clone
+<div id="install-dependencies" class="section level3">
+<h3>Install Dependencies</h3>
+<pre class="r"><code>install.packages(c(
+  &quot;tidyverse&quot;,&quot;lubridate&quot;,&quot;tsibble&quot;,&quot;fabletools&quot;,&quot;feasts&quot;,&quot;forecast&quot;,
+  &quot;mgcv&quot;,&quot;nlme&quot;,&quot;gratia&quot;,&quot;mclust&quot;,&quot;yardstick&quot;,&quot;kableExtra&quot;,&quot;gt&quot;,
+  &quot;patchwork&quot;,&quot;ggrepel&quot;,&quot;zoo&quot;,&quot;imputeTS&quot;,&quot;here&quot;,&quot;stringr&quot;
+))</code></pre>
+</div>
+<div id="run-analysis" class="section level3">
+<h3>Run Analysis</h3>
+<pre class="bash"><code># Clone repository
 git clone https://github.com/xurong980623/Weather-dependent-load-forecasting.git
 cd Weather-dependent-load-forecasting
 
-# 2) (Optional) Set an R project / renv if used
-
-# 3) Prepare data
-#   - Place/verify AEMO, BoM, CER files under data/
-#   - Run scripts in scripts/ for cleaning, PCA, clustering, and features
-
-# 4) Fit &amp; evaluate models
-#   - Run modeling script(s) under scripts/ (GAM/GAMM, diagnostics, forecasts)
-
-# 5) Render the report
+# Place AEMO, BoM, CER data in /Input Data/
+# Render report
 quarto render report.qmd --to html
 # or
 quarto render report.qmd --to pdf</code></pre>
 <hr />
 </div>
 </div>
-<div id="interpretation-highlights" class="section level2">
-<h2>🧠 Interpretation Highlights</h2>
+<div id="key-insights" class="section level2">
+<h2>🔍 Key Insights</h2>
 <ul>
-<li><strong>Temperature</strong> drives a <strong>U‑shaped</strong>
-demand curve: heating at low T, cooling at high T; minima near mild
-days.<br />
+<li><strong>Temperature:</strong> U-shaped demand relationship — heating
+at low T, cooling at high T.<br />
 </li>
-<li><strong>Solar exposure</strong> has a <strong>negative</strong>
-effect (PV offset), strongest on clear/sunny regimes.<br />
+<li><strong>Solar Exposure:</strong> Negative effect (rooftop PV
+offset).<br />
 </li>
-<li><strong>Local seasons (GMM)</strong> outperform calendar seasons for
-realism and diagnostics.<br />
+<li><strong>Local Seasons:</strong> GMM regimes outperform calendar
+seasons.<br />
 </li>
-<li><strong>Heteroskedasticity</strong> differs by regime; <strong>GAMM
-+ varIdent</strong> stabilizes residuals.</li>
+<li><strong>Variance Structure:</strong> <code>varIdent()</code>
+stabilizes residual variance.</li>
 </ul>
 <hr />
 </div>
-<div id="limitations" class="section level2">
-<h2>⚠️ Limitations</h2>
-<ul>
-<li>Uses <strong>observed</strong> weather; operational deployment
-requires <strong>forecast</strong> weather (NWP/ensembles).<br />
-</li>
-<li><strong>Daily</strong> granularity; does not model
-<strong>intraday</strong> load shape.<br />
-</li>
-<li>Clusters built from weather only (not joint with demand).<br />
-</li>
-<li>Excludes <strong>humidity / wind chill</strong>; periodic
-<strong>retraining</strong> advised.<br />
-</li>
-<li><strong>Extrapolation risk</strong> under unprecedented weather or
-PV uptake.</li>
-</ul>
+<div id="limitations-future-work" class="section level2">
+<h2>⚠️ Limitations &amp; Future Work</h2>
+<p><strong>Limitations:</strong><br />
+- Observed (not forecast) weather data.<br />
+- Daily aggregation — no intraday detail.<br />
+- No humidity/wind variables.</p>
+<p><strong>Future Work:</strong><br />
+- Integrate <strong>NWP forecasts</strong> for probabilistic demand
+prediction.<br />
+- Compare with <strong>ML models</strong> (XGBoost, LSTM).<br />
+- Add <strong>EV charging</strong> and <strong>battery</strong>
+effects.<br />
+- Extend to <strong>regional sub-networks</strong>.</p>
 <hr />
 </div>
-<div id="future-work" class="section level2">
-<h2>🚀 Future Work</h2>
-<ul>
-<li>Integrate <strong>NWP</strong> (ensembles) for
-<strong>probabilistic</strong> day‑ahead forecasts.<br />
-</li>
-<li>Compare to <strong>ML</strong> baselines (XGBoost, LSTM).<br />
-</li>
-<li>Add <strong>humidity/wind</strong>; incorporate <strong>EV
-charging</strong> and <strong>battery</strong> signals.<br />
-</li>
-<li>Scale to <strong>sub‑regions</strong> with regionalized GMM.</li>
-</ul>
+<div id="license" class="section level2">
+<h2>🧾 License</h2>
+<p>This project is licensed under the <a href="./LICENSE">MIT
+License</a>.</p>
 <hr />
 </div>
 <div id="acknowledgments" class="section level2">
 <h2>🙏 Acknowledgments</h2>
-<p>This work was completed as part of a <strong>Monash
-University</strong> capstone in collaboration with the <strong>State
-Electricity Commission (SEC) Victoria</strong>.<br />
-We thank mentors and reviewers for guidance on methodology, diagnostics,
-and system context.</p>
+<p>This project was conducted as part of a Monash University capstone,
+in collaboration with the State Electricity Commission Victoria (SEC
+VIC). Special thanks to Rachael E. Quill and the SEC Energy Market team
+for their mentorship, data insights, and methodological guidance.</p>
 </div>
 </div>
 
