@@ -13,6 +13,12 @@ Repository: https://github.com/xurong980623/Weather-dependent-load-forecasting
 
 ---
 
+## License
+
+This project is licensed under the [MIT License](./LICENSE).
+
+---
+
 ## 🗂 Repository Structure
 
 | Folder / File                                | Purpose                                                                                                                |
@@ -206,20 +212,6 @@ quarto render report.qmd --to pdf
 - Compare to **ML** baselines (XGBoost, LSTM).  
 - Add **humidity/wind**; incorporate **EV charging** and **battery** signals.  
 - Scale to **sub‑regions** with regionalized GMM.
-
----
-
-## 📚 Citation
-
-```bibtex
-@misc{xu_quill_2025_gamm_vic,
-  author       = {Rong Xu and Rachael E. Quill},
-  title        = {Modeling Weather-Dependent Electricity Demand in Victoria Using Generalized Additive Mixed Models (GAMMs)},
-  year         = {2025},
-  institution  = {Monash University and State Electricity Commission Victoria},
-  url          = {https://github.com/xurong980623/Weather-dependent-load-forecasting}
-}
-```
 
 ---
 
